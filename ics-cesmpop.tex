@@ -145,13 +145,24 @@
 
 \maketitle
 \begin{abstract}
-This paper represents a novel strategy to improve the scalability of the barotropic mode in the Parallel Ocean Program (POP), by theoretically analyzing the barotropic communications bottleneck. POP discretizes the elliptic equations of the barotropic mode into a linear system $Ax=b$ and solves it using the Preconditioned Conjugate Gradient (PCG) method. PCG scales poorly on distributed systems because of the time-consuming global reductions needed by the inner products in each iteration.
-Based on the analysis of scaling bottleneck,  the classical Stiefel iteration (CSI), which was originally supposed to be less efficient than PCG, is identified as being promising for massive parallelism. In contrast to PCG, the recurrence parameters of CSI are determined by the spectrum of the coefficient matrix $A$ instead of the inner product of the residuals in previous iterations. The Lanczos method is used to resolve the difficulty of estimating the eigenvalues of the large-scale matrix $A$. It constructs a small-scale tridiagonal matrix that has eigenvalues close to $A$. By replacing PCG with CSI, global reductions and their inherent poor scalability are eliminated in the barotropic mode. The implementation of CSI in POP with a 0.1 degree resolution can accerlate one barotropic step by five times, from 1.23s to 0.26s, on 15,000 cores.
-This paper describes a method to verify the correctness of newly introduced solvers or other techniques which may cause tiny perturbation to the initial condition or intermediate results in climate models.
+This paper represents a novel strategy to improve the performance of the ultra-high resolution ocean model Parallel Ocean Program (POP) in the Community Earth System Model(CESM), by reducing its barotropic communications bottleneck.
+POP discretizes the elliptic equations of the barotropic mode into a linear system $Ax=b$ and solves it using the ChronGear method, which is an improved version of Preconditioned Conjugate Gradient (PCG) method. 
+PCG scales poorly on distributed systems because of two time-consuming global reductions needed by the inner products in each iteration.
+ChronGear combine two reductions in each iteration into one and out-performs PCG, however it still inherits the poor scalability from PCG. 
+Based on the analysis of scaling bottleneck,  the classical Stiefel iteration (CSI), which was originally supposed to be less efficient than ChronGear, is identified as being promising for massive parallelism. 
+In contrast to ChronGear, the recurrence parameters of CSI are determined by the spectrum of the coefficient matrix $A$ instead of the inner product of the residuals in previous iterations. 
+The Lanczos method is used to resolve the difficulty of estimating the eigenvalues of the large-scale matrix $A$, which constructs a small-scale tridiagonal matrix that has eigenvalues close to $A$. 
+Further, a parallel local matrix inverse preconditioner is implemented to reduce iterations in each step. 
+Preconditioning doubles the compuation in each ieration, while halves both global  and boundary communication which dominats in the barotropic execution time when large number of processor cores are used due to the halved iteration number.
+By replacing ChronGear with CSI, global reductions and their inherent poor scalability are eliminated in the barotropic mode. 
+The implementation of CSI in the 0.1 degree resolution POP accerlates the barotropic mode by 4.7 times, from 12.8s to 2.7s per simulation day, on 9,128 cores. 
+The simulation rate of POP is improved by 2.1 simulated year, from 6.0 to 8.10 simulated years per wall-clock day. 
+Finally, the new barotrpic solver is verified by an ensemble based statistical method. 
+%D a method to verify the correctness of newly introduced solvers or other techniques which may cause tiny perturbation to the initial condition or intermediate results in climate models.
 \end{abstract}
 
 % A category with the (minimum) three required fields
-\category{C.2.4}{Computer-Communication Networks}{Distributed Systems}[Distributed applications]
+\category{J.2}{Physical Sciences and Engineering}{Earth and atmospheric sciences}
 \category{D.1.3}{Programming Techniques}{Parallel Programming}
 %A category including the fourth, optional field follows...
 %\category{D.2.4}{Software Engineering}{Software/Program Verification}[Statistical methods,Modle Checking,validation]
@@ -161,59 +172,91 @@ This paper describes a method to verify the correctness of newly introduced solv
 \keywords{Massive Parallelism, Preconditioned Conjugate Gradient, Classical Stiefel Iteration, Parallel Ocean Program, Barotropic Mode}
 
 \section{Introduction} \label{se:int}
-Much research in high performance computing now focuses on how to adapt scientific applications for massive parallelism. Without scalable applications, large supercomputers cannot provide the application acceleration that leads to scientific progress in many important problems, such as ocean modeling.
 
-Numerical ocean models that run on supercomputers will increase our ability to simulate and comprehend oceanic processes, monitor and predict the state of the oceans. The computational requirements of ocean simulation will become enormous as the resolution of ocean models increases, so optimization for massive parallelism is essential in ocean models.
+Climate change draws a skyrocketing attention in both public and scientists in recent dacades. 
+Research groups from all over the world have developed many climate models to understand past climate and to preject future climate change. 
+The Community Earth System Model(CESM) is one of the most widely used climate models, which contains component models of the atmosphere, ocean, sea-ice and land. 
+In the Intergovernmental Panel on Climate Change (IPCC) Fifth Assessment Report (AR5) \cite{stocker2013climate},the CESM and its previous version the Community Climate System Model (CCSM) contribute a major part of the report. 
+Most simulations of the CESM are carried out with a nominal 1\degree ocean model and a 1\degree to 2\degree atmosphere model. 
+Climate models usually run for decades and even centuries, which makes it unaffordable to run these models at a higher resolution.
 
-In this paper, we focus on the performance optimization of POP, which is an important multi-agency ocean model that was developed at Los Alamos National Laboratory and is used for global ocean modeling. POP has been widely used for eddy-resolving ocean simulations\cite{mcclean2002eulerian} and coupled ocean-ice and atmosphere-ocean simulations\cite{May2002preliminary} and was officially adopted as a component of the famous Community Earth System Model (CESM). POP utilizes three-dimensional primitive equations with hydrostatic and Boussinesq approximations. To avoid the severe time step restrictions imposed by fast waves, it divides the time integration into two parts: the baroclinic mode, which describes the original dynamic process in three dimensions, and the barotropic mode, which solves the vertically-integrated momentum and continuity equations\cite{smith2010parallel}.
-
-Much recent study demonstrates that ultra-high-resulution ocean model is required as to achieve more realistic depictions of the XXX...
-Graham \cite{graham2014importance} analysed the heat budget of the eastern tropical Pacific Ocean using the global NEMO model at 1\degree and 0.25\degree resolution. The results suggest that the higher resolution modle help to improve the simulation of the asymmetiry of the ENSO cycle. 
-Wehner et al. \cite{wehner2014effect} studied extreme daily precipitation using CAM5.1 with different horizontal resolution and found that extreme daily precipitation rates in the high-resolution configuration are higher and more realistic in the many location and/or seasons. 
-Bryan et al. \cite{bryan2010frontal} analyzed the ouput of the NCAR Community Climate System Model Version 3.5(CCSM3.5) runs that coupled either with a 1\degree  or 0.1\degree ocean model POP to an identically configured 0.5\degree atmosphere model CAM. The result indicates that the positive correlation between SST and surface wind stress are realistically captured only when the ocean component is eddy resolving. 
-McClean et al. \cite{mcclean2011prototype} configured a fully coupled global simulation using CESM4 coupled with 0.25\degree atmosphere/land component model and 0.1\degree ocean model, which is the first attempt to simulate the planetary system at such high horizontal resulution. 
-This high resolution configuration produced an improved depiction of the tropical storm formation, as well as more realistic formation of a cold sea surface temperature wake and Agulhas eddy pathways. 
+However, much recent study demonstrates that ultra-high-resolution models are required as to achieve more realistic depictions and more accurate prediction. 
 Gent et al. \cite{gent2010improvements} compared the mean climate between CCSM coupled with 0.5\degree and 2\degree atmosphere and land components. 
 They demonstrated that the increased atmosphere resolution produces a significantly better mean climate, reduces the maximum sea surface temperature biases in the major upwelling regions. 
 In the meantime, precipitation patterns in the summer Asian monsoon and the atmosphere circulation in the Arctic are improved due to better resolved orography. 
+This high resolution configuration produced an improved depiction of the tropical storm formation, as well as more realistic formation of a cold sea surface temperature wake and Agulhas eddy pathways. 
+Wehner et al. \cite{wehner2014effect} studied extreme daily precipitation using CAM5.1 with different horizontal resolution and found that extreme daily precipitation rates in the high-resolution configuration are higher and more realistic in the many location and/or seasons. 
+
+Study also preprensts that a finer resolution of ocean model benefits a lot to the climate system model.
+Bryan et al. \cite{bryan2010frontal} analyzed the ouput of the NCAR Community Climate System Model Version 3.5(CCSM3.5) runs that coupled either with a 1\degree  or 0.1\degree ocean model POP to an identically configured 0.5\degree atmosphere model CAM. 
+The result indicates that the positive correlation between SST and surface wind stress are realistically captured only when the ocean component is eddy resolving. 
+%They suggests that finer resolution ocean models needed to be further studied to 
+McClean et al. \cite{mcclean2011prototype} configured a fully coupled global simulation using CESM4 coupled with 0.25\degree atmosphere/land component model and 0.1\degree ocean model, which is the first attempt to simulate the planetary system at such high horizontal resulution. 
+Graham \cite{graham2014importance} analysed the heat budget of the eastern tropical Pacific Ocean using the global NEMO model at 1\degree and 0.25\degree resolution. The results suggest that the higher resolution modle help to improve the simulation of the asymmetiry of the ENSO cycle. 
+
+Recently, the ever-increasing computation ability of supercomputers and high-resolution satellite observations makes it possible and meaningful to test higher resolution climate models. 
+Much research in high performance computing have already focused on how to adapt climate models for massive parallelism.
+%Without scalable applications, large supercomputers cannot provide the application acceleration that leads to scientific progress in many important problems, such as ocean modeling.
+%Numerical ocean models that run on supercomputers will increase our ability to simulate and comprehend oceanic processes, monitor and predict the state of the oceans. The computational requirements of ocean simulation will become enormous as the resolution of ocean models increases, so optimization for massive parallelism is essential in ocean models.
+
+In this paper, we focus on the performance optimization of POP, which is an important multi-agency ocean model that was developed at Los Alamos National Laboratory and is used for global ocean modeling. POP has been widely used for eddy-resolving ocean simulations\cite{mcclean2002eulerian} and coupled ocean-ice and atmosphere-ocean simulations\cite{May2002preliminary} and was officially adopted as a component of the famous Community Earth System Model (CESM). POP utilizes three-dimensional primitive equations with hydrostatic and Boussinesq approximations. To avoid the severe time step restrictions imposed by fast waves, it divides the time integration into two parts: the baroclinic mode, which describes the original dynamic process in three dimensions, and the barotropic mode, which solves the vertically-integrated momentum and continuity equations\cite{smith2010parallel}.
+
 
 Much attention is currently focused on the performance of POP, especially the poor scaling of the barotropic mode.
-%One of the most common efficiency issues about POP is the poor scaling of the barotropic mode.
 Jones et al. \cite{pop05} tested the portability of POP 1.4.3 on both vector architectures and commodity clusters and found that the baroclinic mode is dominated by computation, while the barotropic mode is dominated by communications overhead, including halo updates and global reduction operations. Stone et al. \cite{stone2011cgpop} found that the time consumption ratio of the barotropic mode increases from 10\% on hundreds of processors to more than 50\% on more than 10,000 processors.
 They developed a proxy for POP, the CGPOP miniapp, which helps prototype and evaluate new algorithms, data structures, and programming models for the barotropic mode of POP.
 Worley et al. \cite{Worley:2011:PCE:2063384.2063457} and Dennis et al. \cite{dennis2012computational} tested POP 2.0.1 on nearly 30,000 cores as a component of CESM. They found that POP is the most expensive component in most production simulations and confirmed that the performance of POP at large process counts is dominated by the communications overhead in the barotropic mode.
 
-The main reason for the poor scalability of the barotropic mode is the implicit solver used for the linear system. The barotropic mode of POP is approximated as $Ax=b$, and a typical PCG solver is used to solve this linear system. The PCG solver involves two inner products in each iteration. When harnessing hundreds of thousands processors, the global communications and synchronization operations needed by the inner product becomes the main bottleneck.
-There are currently many solutions for reducing the negative effect of the PCG solver. Some solutions attempt to reduce the global communications overhead\cite{dAzevedo1999lapack} and to overlap communication with computation\cite{beare1997optimisation}. Other solutions use land elimination and load-balance strategies\cite{dennis2007inverse, dennis2008scaling} to decrease the number of processes and the associated global reduction overhead.
+The main reason for the poor scalability of the barotropic mode is the implicit solver used for the linear system. 
+The barotropic mode of POP is approximated as $Ax=b$, and a modified PCG solver ChronGear is used to solve this linear system. 
+PCG scales poorly on distributed systems because of two time-consuming global reductions needed by the inner products in each iteration.
+ChronGear combine two reductions in each iteration into one and out-performs PCG, however it still inherits the poor scalability from PCG. 
+When harnessing hundreds of thousands processors, the global communications and synchronization operations needed by the inner product becomes the main bottleneck.
+There are currently many solutions for reducing the negative effect of the PCG solver. 
+Some solutions attempt to reduce the global communications overhead\cite{dAzevedo1999lapack} and to overlap communication with computation\cite{beare1997optimisation}. 
+Other solutions use land elimination and load-balance strategies\cite{dennis2007inverse, dennis2008scaling} to decrease the number of processes and the associated global reduction overhead.
 
-These solutions are somewhat efficient. However, they are not intended to eliminate the root of this problem, which is the global reduction overhead. In this paper, we first construct a performance model of the PCG solver to quantitatively analyze the scalability of the barotropic mode. The model identifies the gradual increase of global communications as the source of the scalability bottleneck. Accordingly, we design a novel and scalable solver based on the classical Stiefel iteration (CSI) to break this bottleneck. The recurrence parameters of CSI are determined by the spectrum of the coefficient matrix $A$ instead of the communication-intensive inner product of the residuals of previous iterations. This feature makes CSI more scalable than PCG on massively parallel architectures due to the elimination of global reduction. The Lanczos method is used to estimate the eigenvalues of $A$. The Lanczos method constructs a low-order tridiagonal matrix $T$ that has eigenvalues close to $A$ and thus resolves the difficulty of directly obtaining the eigenvalues of $A$. The extra cost of estimating the eigenvalues introduced by CSI is as low as one barotropic step. Experiments show that PCG scales well on fewer than 1,000 cores but that the execution time of PCG increases when more than 5,000 cores are used. In contrast, CSI scales well until 10,000 cores are used, and it reduces the execution time of one barotropic mode from 1.23 seconds to 0.26 seconds on 15,000 cores.
+These solutions are somewhat efficient. 
+However, they are not intended to eliminate the root of this problem, which is the global reduction overhead. 
+In this paper, we first construct a performance model of the PCG solver to quantitatively analyze the scalability of the barotropic mode. 
+The model identifies the gradual increase of global communications as the source of the scalability bottleneck. 
+Accordingly, we design a novel and scalable solver based on the classical Stiefel iteration (CSI) to break this bottleneck. 
+The recurrence parameters of CSI are determined by the spectrum of the coefficient matrix $A$ instead of the communication-intensive inner product of the residuals of previous iterations.
+This feature makes CSI more scalable than ChronGear on massively parallel architectures due to the elimination of global reduction. 
+The Lanczos method is used to estimate the eigenvalues of $A$. 
+The Lanczos method constructs a low-order tridiagonal matrix $T$ that has eigenvalues close to $A$ and thus resolves the difficulty of directly obtaining the eigenvalues of $A$. 
+The extra cost of estimating the eigenvalues introduced by CSI is as low as one barotropic step. 
+Further, a parallel local matrix inverse preconditioner using Error Propagation method (EVP) \cite{roache1995elliptic} is implemented to reduce iterations in each solver step. 
+Preconditioning doubles the compuation in each ieration, while halves both global  and boundary communication which dominats in the barotropic execution time when large number of processor cores are used due to the halved iteration number.
 
-To meet the increasing computational requiremnts, it is a common scenario for modelers to improve some numerical methods and to try new architectures and compilers in order to utilize the exploring computational resources. 
-However, the chaotic nature of climate models makes it extremely difficult to verify any kind of changes to them. A tiny perturbation added to the intial condition or intermediate result leads to large difference in the final result.
-We adopt the definition of model verification is open referred to "ensuring that the computer program of computerized model and its implementation are correct"\cite{sargent2005verification}.
+Experiments show that ChronGear scales well on fewer than 1,224 cores but that the execution time increases when more than 2,634 cores are used. 
+In contrast, Preconditioned CSI scales well even when 9,128 cores are used.
+The implementation of preconditioned CSI in the 0.1 degree resolution POP accerlates the barotropic mode by 4.7 times, from 12.8s to 2.7s per simulation day, on 9,128 cores. 
+The simulation rate of POP is improved by 2.1 simulated year, from 6.0 to 8.10 simulated years per wall-clock day. 
+Finally, to ensure that no "climate change" is introduced to the POP, an ensemble based statistical method is used to verify thethe new barotrpic solver is verified the new barotropic solver. \\
 
-
-Porting validation of the current CESM is subjective and one-sided\cite{vertenstein2011cesm1}. It provides basically two way. First, users run a set of cases on their own machine, plot the final results and compare them to the standard diagnostics plot. The second one is to compare difference of several variables produced on local machine and standard machines. CESM utilizes the Root Mean Square Error to measure the difference. 
-The remainder of this paper is organized as follows. Section \ref{se:baro} reviews the mathematical model of the barotropic mode of POP and constructs a performance model to evaluate the scalability of the iterative methods. Section \ref{se:csi} introduces the design of CSI in POP. Section \ref{se:exp} presents experiments that compare the scalabilities of PCG and CSI on various numbers of cores. Finally, related work is described in section \ref{se:rel} and and the conclusion is presented in section \ref{se:conc}.
+The remainder of this paper is organized as follows. 
+Section \ref{se:baro} reviews the mathematical model of the barotropic mode of POP and constructs a performance model to evaluate the scalability of the iterative methods. 
+Section \ref{se:csi} introduces the design of CSI in POP and the techneque of EVP preconditioning.
+Section \ref{se:exp} presents experiments that compare the scalabilities of ChronGear and CSI on various numbers of processor cores. 
+Finally, related work is described in section \ref{se:rel} and and the conclusion is presented in section \ref{se:conc}.
 
 \section{Barotropic Mode Review} \label{se:baro}
 %----------------------------------------------------------------------------
-
-
 The main procedure of the barotropic mode of POP is to solve an elliptic system of the sea surface height (SSH) \cite{pop05}. 
-To damp the computational modes  associated with gravity waves and Rossby waves raised by pure leapfrog discretization, POP adopts an implicit scheme in the barotropic mode and simplifies the elliptic equations as a linear system $Ax=b$.\\
-
-This linear system involves only one two dimensional variable SSH, thus its computation is samll compared with the computation in the baroclinic mode. However, as shown in Fig. \ref{fig:StepComp}, the execution time of solving the linear system in the barotropic mode increases as an increasing number of cores are used. 
-For 0.1 degree POP, when 512 cores are used, the execution time of solver only takes 4\% of the total execution of POP, which is much smaller than the one of
-the baroclinic mode, that is 90\%. 
-However, when thousands of cores are used, the baroclinic execution time reduced very efficiently while the solver execution time refuses to decrease due to its poor scalability. 
-As a result, the percentage of solver execution time reach to 32\% while the one of baroclinic mode reduce to 50\% when more than six thousand of cores are used. 
+To damp the computational modes  associated with gravity waves and Rossby waves raised by pure leapfrog discretization, POP adopts an implicit scheme in the barotropic mode and simplifies the elliptic equations as a linear system $Ax=b$.
 
 \begin {figure}
 \centering
 \includegraphics[scale=0.5]{POPStepComp}
 \caption[] {Percentage of execution time in 0.1 degree POP.\label{fig:StepComp}}
 \end{figure}
+This linear system involves only one two dimensional variable SSH, thus its computation is samll compared with the computation in the baroclinic mode. However, as shown in Fig. \ref{fig:StepComp}, the execution time of solving the linear system in the barotropic mode increases as an increasing number of cores are used. 
+For 0.1 degree POP, when 512 cores are used, the execution time of solver only takes 4\% of the total execution of POP, which is much smaller than the one of
+the baroclinic mode, that is 90\%. 
+However, when thousands of cores are used, the baroclinic execution time reduced very efficiently while the solver execution time refuses to decrease due to its poor scalability. 
+As a result, the percentage of solver execution time reach to 32\% while the one of baroclinic mode reduce to 50\% when more than six thousand of cores are used. 
+
 
 The implicit elliptic equations of SSH in POP can be expressed as follows:
 \begin{equation}
@@ -222,38 +265,45 @@ The implicit elliptic equations of SSH in POP can be expressed as follows:
 \end{equation}
 where $H$ is the depth of the ocean bottom, $\tau$ is the time step  and $\eta^n$ is the SSH at the n-th time step, and $\psi$ represents a function of previous states.
 
-In POP, equation (\ref{eq:ssh}) is discretized on a two dimensional grid using a nine-point stencil, as shown in Fig. \ref{fig:grid}. $A_{i,j}^0$, $A_{i,j}^N$, $A_{i,j}^E$ and $A_{i,j}^{NE}$ are symmetrical coefficients between grid point $(i,j)$ and its neighbors, and are determined by $H$, $\tau$ and the grid lengths. The stencil confined to grid point $(i,j)$ is
+In POP, equation (\ref{eq:ssh}) is discretized on a two dimensional grid using a nine-point stencil, as shown in Fig. \ref{fig:grid}. $A_{i,j}^0$, $A_{i,j}^n$, $A_{i,j}^e$ and $A_{i,j}^{ne}$ are symmetrical coefficients between grid point $(i,j)$ and its neighbors, and are determined by $H$, $\tau$ and the grid lengths. The stencil confined to grid point $(i,j)$ is
 \begin{eqnarray}
 \label{eq:sten}
-&A_{i,j}^0\eta_{i,j}+A_{i,j}^E\eta_{i+1,j}+A_{i,j}^N\eta_{i,j+1} +A_{i,j}^{NE}\eta_{i+1,j+1}\nonumber\\
-&+A_{i-1,j}^{NE}\eta_{i-1,j+1} +A_{i-1,j}^E\eta_{i-1,j}+A_{i-1,j-1}^{NE}\eta_{i-1,j-1}\nonumber\\
-&+A_{i,j-1}^N\eta_{i,j-1}+ A_{i+1,j-1}^{NE}\eta_{i,j-1}=\psi_{i,j}
+&A_{i,j}^0\eta_{i,j}+A_{i,j}^e\eta_{i+1,j}+A_{i,j}^n\eta_{i,j+1} +A_{i,j}^{ne}\eta_{i+1,j+1}\nonumber\\
+&+A_{i-1,j}^{ne}\eta_{i-1,j+1} +A_{i-1,j}^e\eta_{i-1,j}+A_{i-1,j-1}^{ne}\eta_{i-1,j-1}\nonumber\\
+&+A_{i,j-1}^n\eta_{i,j-1}+ A_{i+1,j-1}^{ne}\eta_{i,j-1}=\psi_{i,j}
 \end{eqnarray}
 %----------------------------------------------------------------------------
-\begin{figure*}[!htb]
+\begin{figure*}
 \begin{center}
 \includegraphics[scale=0.3]{grid_domain}
 \caption[]{Grid domain decomposition of POP\label{fig:grid}}
 \end{center}
 \end{figure*}
-In the global domain, the stencil becomes $Ax =b$. $A$ is a block tridiagonal matrix composed of coefficients $A^0$, $A^N$, $A^E$ and $A^{NE}$, provided that the grid points are ordered along latitude and longitude. Equation (\ref{eq:sten}) shows that $A$ has only nine nonzero elements in each row. For massive parallelism, POP divides the global domain into blocks and distributes them to processes. Each process only computes the evolution procedures related to the grids in its own block, and maintains a halo region to update data with its neighbors.
+In the global domain, the stencil becomes $Ax =b$. 
+$A$ is a block tridiagonal matrix composed of coefficients in $A^0$, $A^n$, $A^e$ and $A^{ne}$, provided that the grid points are ordered along latitude and longitude. 
+Equation (\ref{eq:sten}) shows that $A$ has only nine nonzero elements in each row. 
+For massive parallelism, POP divides the global domain into blocks and distributes them to processes. 
+Each process only computes the evolution procedures related to the grids in its own block, and maintains a halo region to update data with its neighbors.
 
-For simplicity, in the remainder of this paper, we assume that the global domain size is $N\times N$, and that it is divided into $m\times m$ blocks with size of $n\times n$ ($n=N/m$). Let $\tilde{A}$ be the coefficient matrix associated with the block $B(k,l)$. $\tilde{A}$ is a diagonal block matrix of $A$ with a size of $n^2\times n^2$  and has at most nine nonzero elements in each row. Thus, matrix-vector multiplication of $\tilde{A}\tilde{x}$ has $9n^2$ times of float multiplication operations rather than $n^2\times n^2$ operations.
+For simplicity, in the remainder of this paper, we assume that the global domain size is $\mathcal{N}\times \mathcal{N}$, and that it is divided into $m\times m$ blocks with size of $n\times n$ ($n=\mathcal{N}/m$). 
+Let $\tilde{A}$ be the coefficient matrix associated with the block $B(k,l)$. 
+$\tilde{A}$ is a diagonal block matrix of $A$ with a size of $n^2\times n^2$  and has at most nine nonzero elements in each row. 
+Thus, matrix-vector multiplication of $\tilde{A}\tilde{x}$ has $9n^2$ times of float multiplication operations rather than $n^2\times n^2$ operations.
 %----------------------------------------------------------------------------
 \subsection{PCG solver }
 %POP provides three coded methods to solve the linear system: the Preconditioned Conjugate Gradient (PCG), the Conjugate Residual (CGR) and the Jacobi Iteration.
-The classical conjugate gradient method with a diagonal preconditioner $M = \Lambda(A)$ is used as the default barotropic solver in POP because of its efficiency in small-scale parallelism. The procedure of PCG is shown in Algorithm \ref{alg:pcg}.
+A modified conjugate gradient method with a diagonal preconditioner $M = \Lambda(A)$ is used as the default barotropic solver in POP because of its efficiency in small-scale parallelism. ChronGear rearranges the computation in PCG and combine two global reduction into one, but still share the same mathmatical nature with PCG. For simplicity, the procedure of PCG instead of ChronGear is provided in Algorithm \ref{alg:pcg}.
 
 \begin{algorithm}[!t]
 \caption{Preconditioned Conjugate Gradient solver}
 \label{alg:pcg}
 \begin{algorithmic}[1]
-\REQUIRE Coefficient matrix $\tilde{\textbf{A}}$, initial guess $\textbf{x}_0$ and $\textbf{b}$ associated with grid block $B_{i,j}$ \\
+\REQUIRE Coefficient matrix $\tilde{\textbf{A}}$, preconditioner  M, initial guess $\textbf{x}_0$ and $\textbf{b}$ associated with grid block $B_{i,j}$ \\
 //\qquad    \textit{do in parallel with all processes}
 \STATE $\textbf{r}_0 = \textbf{b}-\tilde{\textbf{A}}\textbf{x}_0$, $\textbf{s}_0 =0$;\quad $\beta_0=1$, $k=0$;
 \WHILE{$k \leq k_{max}$ }
 \STATE $k=k+1$;
-\STATE $\textbf{r}'_{k-1} =\textbf{M}^{-1}\textbf{r}_{k-1}$; \label{pcg_scale1} \COMMENT{diagonal preconditioning}
+\STATE $\textbf{r}'_{k-1} =\textbf{M}^{-1}\textbf{r}_{k-1}$; \label{pcg_scale1} \COMMENT{preconditioning}
 \STATE $\tilde{\beta_k} = \textbf{r}_{k-1}^T\textbf{r}'_{k-1}$;\label{pcg_dot1}
 \STATE $\beta_k = global\_sum(\tilde{\beta_k})$;\label{pcg_global1} \COMMENT{ global reduction}
 \STATE $\textbf{s}_k = \textbf{r}'_{k-1} +(\beta_k/\beta_{k-1})\textbf{s}_{k-1}$;\label{pcg_scale2}
@@ -277,25 +327,30 @@ The classical conjugate gradient method with a diagonal preconditioner $M = \Lam
 As shown in Algorithm \ref{alg:pcg}, the PCG solver mainly contains three parts: computation, boundary updating, and global reduction. Computation involves matrix-vector and vector-vector multiplication and vector scaling.  Boundary communication is needed to update the halo area after the matrix-vector multiplication.  The time-consuming global reduction process occurs during the inner product operations.
 
 %----------------------------------------------------------------------------
-\subsection{PCG Performance Model}
-Assume that $P=m^2$ processes are used in the barotropic phase and that each process has exactly one grid block. The total time of the barotropic mode is equal to the execution time of the PCG solver on any block $B(i,j)$. Set $T_c$, $T_b$ and $T_g$ to be the execution time of the computation, boundary updating and global reduction, respectively, in one solver iteration.
+\subsection{Communication Bottleneck}
+Assume that $p=m^2$ processes are used in the barotropic phase and that each process has exactly one grid block. The total time of the barotropic mode is equal to the execution time of the PCG solver on any block $B(i,j)$. Set $\mathcal{T}_c$, $\mathcal{T}_b$ and $\mathcal{T}_g$ to be the execution time of the computation, boundary updating and global reduction, respectively, in one solver iteration.
 %----------------------------------------------------------------------------
 %Set the global grid domain size $N\times N$, then when $P$ computing nodes are used, the block size on each node is $n \times n$ ($n = N/\sqrt{P}$).
-In Algorithm \ref{alg:pcg}, the computation involves four vector scaling operations in steps \ref{pcg_scale1},  \ref{pcg_scale2} ,\ref{pcg_scale3} and  \ref{pcg_scale4}, two vector-vector multiplication operations of the inner products in steps \ref{pcg_dot1} and \ref{pcg_dot2}, and one matrix-vector multiplication operation in step \ref{pcg_mat}. Thus, $T_c= \Theta (4 n^2 +2n^2+ 9n^2) = \Theta (15n^2) =\Theta(15\frac{N^2}{P})$. It is obvious that $T_c$ decreases as the number of processes increases and has a lower limit of zero.
+In Algorithm \ref{alg:pcg}, the computation involves four vector scaling operations in steps \ref{pcg_scale1},  \ref{pcg_scale2} ,\ref{pcg_scale3} and  \ref{pcg_scale4}, two vector-vector multiplication operations of the inner products in steps \ref{pcg_dot1} and \ref{pcg_dot2}, and one matrix-vector multiplication operation in step \ref{pcg_mat}. 
+Thus, $\mathcal{T}_c= (4 n^2 +2n^2+ 9n^2)\theta  = 15n^2\theta  =15\frac{\mathcal{N}^2}{p}\theta $, where $\theta$ is the time unit per floating-point operation. 
+It is obvious that $\mathcal{T}_c$ decreases as the number of processes increases and has a lower limit of zero.
 
-Boundary updating occurs only between neighbors for each process, and its time depends on network delay and the volume of the halo regions. The default halo size is 2; thus, the volume in one boundary communication is $2n$ and decreases as the number of processes grows. Each process has to exchange data with its four neighbors, so the updating time in one iteration is $T_b =2\times4T_{delay} +\Theta (2\times4\times 2n)=8T_{delay} +\Theta (\frac{16N}{\sqrt{P}})$. The updating time also decreases as the number of processes increases but has a lower bound of $8T_{delay}$.
+Boundary updating occurs only between neighbors for each process, and its time depends on network delay and the volume of the halo regions. 
+The default halo size is 2; thus, the volume in one boundary communication is $2n$ and decreases as the number of processes grows. 
+Each process has to exchange data with its four neighbors, so the updating time in one iteration is $\mathcal{T}_b =2\times4\alpha +(2\times4\times 2n)\beta=8\alpha +(\frac{16\mathcal{N}}{\sqrt{p}})\beta $, where $\alpha$ is point-to-point communication latency per message, $\beta$ accounts for tranfer time per byte (inverse of bandwith).
+The updating time also decreases as the number of processes increases but has a lower bound of $8\alpha$.
 
-The global reduction in one inner product sums up only one number from each process, so the data transmission time is negligible compared with the time of the global reduction itself. The reduction time, including the initiation delay and network blocking, satisfies $T_g= T_{init}+ c_g\cdot \mathcal{G}(P)$. Here, $T_{init}$ and $c_g$ are constants associated with the parallel environment, and $\mathcal{G}(\cdot)$ is a function related to the network topology in the given architecture. For example, $\mathcal{G}(\cdot)$ is logarithmic in an ideal hypercubic network. In all, $T_g$ increases monotonically with the number of processes $P$.
+The global reduction in one inner product sums up only one number from each process, so the data transmission time is negligible compared with the time of the global reduction itself. 
+The reduction time, including the initiation delay and network blocking, satisfies $\mathcal{T}_g= \log p \alpha$, assuming that a binomial tree approach is used in the reduction operation. Obviously, $\mathcal{T}_g$ increases monotonically with the number of processes $p$.
 
-Let $T_0$ be the time unit of one floating-point operation and $B$ be the number of floating-point numbers transmitted by the network per second from process to process.
+%Let $T_0$ be the time unit of one floating-point operation and $B$ be the number of floating-point numbers transmitted by the network per second from process to process.
 %Provided that the processor frequency and network bandwidth are $S_{cpu}$ and $B_{net}$, and that their efficiencies are $R_{cpu}$ and $R_{net}$, then $T_0 = R_{cpu} S_{cpu}^{-1}$, and $B = \frac{1}{8}R_{net}B_{net}$.
 The execution time of one PCG iteration can be expressed as:
 \begin{eqnarray}
 \label{t_pcg}
-T_{pcg}=&T_c\qquad + \qquad T_b\qquad +\qquad T_g \qquad \nonumber\\
-=&15 T_0\frac{N^2}{P} + 8T_{delay} + \frac{16N}{B\cdot\sqrt{P}}+T_{init} +c_g\mathcal{G}(P)
+\mathcal{T}_{pcg}=\mathcal{T}_c + \mathcal{T}_b+\mathcal{T}_g = 15 \frac{\mathcal{N}^2}{p}\theta + \frac{16\mathcal{N}}{\sqrt{p}}\beta +(8+\log p)\alpha
 \end{eqnarray}
-The execution time of an entire PCG solver step is $t_{pcg} = K_{pcg}\cdot T_{pcg}$. Here $K_{pcg}$ is the number of iterations in one PCG step and does not change with the number of processes. Equation (\ref{t_pcg}) shows that the time required for computation and boundary updating decreases as the number of processes increases, while in contrast the time required for global reduction increases with increasing numbers of processes. The execution time of the PCG solver will increase when the number of processors exceeds a certain level.
+The execution time of an entire PCG solver step is $t_{pcg} = K_{pcg}\cdot \mathcal{T}_{pcg}$. Here $K_{pcg}$ is the number of iterations in one PCG step and does not change with the number of processes. Equation (\ref{t_pcg}) shows that the time required for computation and boundary updating decreases as the number of processes increases, while in contrast the time required for global reduction increases with increasing numbers of processes. The execution time of the PCG solver will increase when the number of processors exceeds a certain level.
 
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
@@ -305,36 +360,44 @@ To address the bottleneck of PCG, the new barotropic solver should involve as fe
 % As early as 1985, Saad et al.\cite{saad1985solving} implemented a generalization of CSI on a linear array of processors and claimed that this generalization is more favorable than conjugate gradient method in some cases when the eigenvalues are known.
 
 \subsection{Algorithm and Evaluation}
-In contrast to PCG, CSI does not require inner product operations and thus eliminates the bottleneck of global reduction. However, it requires preliminary knowledge about the spectrum of the coefficient matrix $A$. It is well-known that obtaining the eigenvalues is more complicated than solving a linear equation. Fortunately,
-for real symmetric and positive definite  matrices, such as the coefficient matrix $A$ in POP,
-only approximations of the largest and smallest eigenvalues $\lambda_{max}$ and $\lambda_{min}$ are needed to ensure convergence of CSI. These two extremal eigenvalues can be estimated efficiently by the Lanczos method. The pseudo code of the CSI algorithm designed for POP is shown in Algorithm 2.
+In contrast to PCG, CSI does not require inner product operations and thus eliminates the bottleneck of global reduction. However, it requires preliminary knowledge about the spectrum of the coefficient matrix $A$. 
+It is well-known that obtaining the eigenvalues is more complicated than solving a linear equation. 
+Fortunately, for real symmetric and positive definite  matrices, such as the coefficient matrix $A$ in POP,
+only approximations of the largest and smallest eigenvalues $\lambda_{max}$ and $\lambda_{min}$ are needed to ensure convergence of CSI. 
+These two extremal eigenvalues can be estimated efficiently by the Lanczos method. 
+The pseudo code of the preconditioned CSI algorithm designed for POP is shown in Algorithm 2.
 
 
 \begin{algorithm}[h]
 \caption{Preconditioned Classical Stiefel Iteration solver}
 \label{alg:pcsi}
 \begin{algorithmic}[1]
-\REQUIRE Coefficient matrix $\tilde{\textbf{A}}$, Preconditioner  M, initial guess  $\textbf{x}_0$ and $\textbf{b}$ associated with grid block $B_{i,j}$; Estimated eigenvalue boundary $[\nu,\mu]$;  \\
+\REQUIRE Coefficient matrix $\tilde{\textbf{A}}$, preconditioner  M, initial guess  $\textbf{x}_0$ and $\textbf{b}$ associated with grid block $B_{i,j}$; Estimated eigenvalue boundary $[\nu,\mu]$;  \\
  // \qquad    \textit{do in parallel with all processes}
 \STATE $\alpha =\frac{2}{\mu -\nu}$, $ \beta = \frac{\mu +\nu}{\mu -\nu}$, $\gamma = \frac{\beta}{\alpha}$, $\omega_0 =\frac{ 2}{\gamma}$;\quad $k = 0$;
-\STATE $\textbf{r}_0 = \textbf{b}-\tilde{\textbf{A}}\textbf{x}_0$; $\textbf{x}_1 =\textbf{x}_0 -\gamma^{-1}\textbf{Zr}_0$; $\textbf{r}_1 =\textbf{b} -\tilde{\textbf{A}}\textbf{x}_1$;
+\STATE $\textbf{r}_0 = \textbf{b}-\tilde{\textbf{A}}\textbf{x}_0$; $\textbf{x}_1 =\textbf{x}_0 -\gamma^{-1}\textbf{M}^{-1}\textbf{r}_0$; $\textbf{r}_1 =\textbf{b} -\tilde{\textbf{A}}\textbf{x}_1$; 
 \WHILE{$k \leq k_{max}$ }
-\STATE $k=k+1$;\quad $\omega_k = 1/(\gamma - \frac{1}{4\alpha^2}\omega_{k-1})$; \COMMENT{the iterated function}
-\STATE $\Delta \textbf{x}_{k} =\omega_k\textbf{Zr}_{k-1}+(\gamma \omega_k-1)\Delta \textbf{x}_{k-1}$;
-\STATE $\textbf{x}_{k} =\textbf{x}_{k-1}+\Delta \textbf{x}_{k-1}$; \quad  $\textbf{r}_{k} =b- \tilde{\textbf{A}}\textbf{x}_{k}$;
+\STATE $k=k+1$;
+\STATE $\omega_k = 1/(\gamma - \frac{1}{4\alpha^2}\omega_{k-1})$; \COMMENT{the iterated function}
+\STATE $\textbf{r}'_{k} =\textbf{M}^{-1}\textbf{r}_{k-1}$; \COMMENT{preconditioning} \
+\STATE $\Delta \textbf{x}_{k} =\omega_k\textbf{r}'_{k}+(\gamma \omega_k-1)\Delta \textbf{x}_{k-1}$; 
+\STATE $\textbf{x}_{k} =\textbf{x}_{k-1}+\Delta \textbf{x}_{k-1}$; 
+\STATE $\textbf{r}_{k} =b- \tilde{\textbf{A}}\textbf{x}_{k}$; \COMMENT{matrix--vector multiplication}
 \STATE $update\_halo(\textbf{r}_k)$; \COMMENT{boundary communication}
-\STATE \textbf{if} $k \%  n_{c} == 0$ \textbf{then}  check convergence;
+\IF { $k \%  n_{c} == 0$ }
+\STATE check convergence;
+\ENDIF
 \ENDWHILE
 \end{algorithmic}
 \end{algorithm}
 
-As shown in Algorithm \ref{alg:pcsi}, CSI has a similar iteration procedure to PCG but replace the two inner products and their associated vector-vector multiplications with an iterated function of the two extremal eigenvalues of $A$. The computation time of the CSI solver is $T_c = \Theta (4 n^2 + 9n^2) = \Theta (13n^2) =\Theta(\frac{13N^2}{P})$. Because the halo regions are the same in PCG and CSI, the boundary updating time is still $T_b =8T_{delay} +\Theta (16 \frac{N}{\sqrt{P}})$. CSI has no global reduction except for checking convergence; thus, the execution time of one CSI iteration can be expressed as:
+As shown in Algorithm \ref{alg:pcsi}, CSI has a similar iteration procedure to PCG but replace the two inner products and their associated vector-vector multiplications with an iterated function of the two extremal eigenvalues of $A$. The computation time of the CSI solver is $T_c =  (4 n^2 + 9n^2)\theta = (13n^2)\theta =\frac{13\mathcal{N}^2}{p}\theta$. Because the halo regions are the same in PCG and CSI, the boundary updating time is still $\mathcal{T}_b =8\alpha + (16 \frac{\mathcal{N}}{\sqrt{p}})\theta$. CSI has no global reduction except for checking convergence; thus, the execution time of one CSI iteration can be expressed as:
 \begin{equation}
 \label{t_csi}
-T_{csi} = T_c + T_b
-= 11T_0 \frac{N^2}{P}+ 8T_{delay} + \frac{16N}{B \cdot\sqrt{P}}
+\mathcal{T}_{csi} = \mathcal{T}_c + \mathcal{T}_b
+= 11\frac{\mathcal{N}^2}{p}\theta+ 8\alpha + \frac{16\mathcal{N}}{ \sqrt{p}}\beta
 \end{equation}
-The execution time of an entire CSI solver step without convergence checking is $t_{csi} = K_{csi}\cdot T_{csi}$. $K_{csi}$ is the number of iterations in one CSI solver step and it is usually larger than $K_{pcg}$ under the same convergence tolerances.  CSI has a slower convergence speed than PCG, and its execution time may be longer than PCG on a small number of cores when global reduction is not a bottleneck. However, as shown in equations (\ref{t_pcg}) and (\ref{t_csi}), CSI is faster than PCG in a single iteration because of the elimination of the time-consuming global reduction operation.
+The execution time of an entire CSI solver step without convergence checking is $t_{csi} = K_{csi}\cdot \mathcal{T}_{csi}$. $K_{csi}$ is the number of iterations in one CSI solver step and it is usually larger than $K_{pcg}$ under the same convergence tolerances.  CSI has a slower convergence speed than PCG, and its execution time may be longer than PCG on a small number of cores when global reduction is not a bottleneck. However, as shown in equations (\ref{t_pcg}) and (\ref{t_csi}), CSI is faster than PCG in a single iteration because of the elimination of the time-consuming global reduction operation.
 The total execution time of PCG exceeds that of CSI at a threshold number of processes.
 
 \subsection{Eigenvalue Estimation}
@@ -342,37 +405,34 @@ The convergence speed of CSI reaches its theoretical optimum when $\nu = \lambda
 To utilize the parallism of POP, we employ Lanczos method \cite{Paige1980235} to construct a series of tridiagonal matrixes $T_m (m=1,2,...)$ whose largest and smallest eigenvalues converge to those of $A$.
 %In practice, we find that this theoretical optimum has a iteration number close to the one of PCG.
 
-The procedure of Lanczos-based eigenvalues estimation in the case of using a preconditioner is shown in Algorithm \ref{alg:lanczos_pre}. This algorithm assume that $\textbf{A}$ is positive defined symmetical matrix.  However, it is simple to adjust the algorithm for negative defined matrix as in our case. Just negating both $\textbf{A}$ and its preconditioner. 
-\begin{algorithm}
-\caption{Lanczos-based Eigenvalue Estimation of preconditioned Matrix}
+
+\begin{algorithm}[h]
+\caption{Lanczos-based Eigenvalue Estimation of Matrix with a preconditioner}
 \label{alg:lanczos_pre}
 \begin{algorithmic}[1]
 \REQUIRE Coefficient matrix $\tilde{\textbf{A}}$, preconditioner $\textbf{M}$, and random vector $\textbf{r}_0$ associated with grid block $B_{i,j}$; \\
  //\qquad    \textit{do in parallel with all processes}
-\STATE $\textbf{s}_0=\textbf{M}^{-1}\textbf{r}_0$;\quad $\textbf{q}_1 = \textbf{r}_0/({\textbf{r}_0^T\textbf{s}_0})$;\quad $\textbf{q}_0=\textbf{0}$;\quad $T_0=\emptyset$;\quad $\beta_0 =0$;\quad  $\mu_0 =0$;\quad $j=1$;
+\STATE $\textbf{s}_0=\textbf{M}^{-1}\textbf{r}_0$;\quad $\textbf{q}_1 = \textbf{r}_0/({\textbf{r}_0^T\textbf{s}_0})$;\quad $\textbf{q}_0=\textbf{0}$;
+\STATE $T_0=\emptyset$;\quad $\beta_0 =0$;\quad  $\mu_0 =0$;\quad $j=1$;
 \WHILE{$j<k_{max}$}
-%\STATE $\textbf{q}_1 = \textbf{r}_0/||\textbf{r}_0||$; \quad $\beta_0\textbf{q}_0=0$;\quad  $\tilde{\mu}_k =0$; \quad $j=0$;
-%\FOR{$j = 1, 2,...,k$}
-\STATE $\textbf{p}_j = \textbf{M}^{-1}\textbf{q}_j$;
-\STATE $\textbf{r}_j=\tilde{\textbf{A}}\textbf{p}_j-\beta_{j-1}\textbf{q}_{j-1}$;\quad $update\_halo(\textbf{r}_j)$;
-\STATE $\tilde{\alpha}_j =\textbf{p}_j^T\textbf{r}_j$;\quad $\alpha_j=global\_sum(\tilde{\alpha}_j)$;
-\STATE $\textbf{r}_j=\textbf{r}_j-\alpha_{j}\textbf{q}_{j}$;
-%\IF{$\textbf{r}_j \neq \textbf{0}$}
-\STATE $\textbf{s}_j = \textbf{M}^{-1}\textbf{r}_j$; 
+\STATE $\textbf{p}_j = \textbf{M}^{-1}\textbf{q}_j$; \quad $\textbf{r}_j=\tilde{\textbf{A}}\textbf{p}_j-\beta_{j-1}\textbf{q}_{j-1}$;
+\STATE $update\_halo(\textbf{r}_j)$;
+\STATE $\tilde{\alpha}_j =\textbf{p}_j^T\textbf{r}_j$; \quad $\alpha_j=global\_sum(\tilde{\alpha}_j)$;
+\STATE $\textbf{r}_j=\textbf{r}_j-\alpha_{j}\textbf{q}_{j}$; \quad $\textbf{s}_j = \textbf{M}^{-1}\textbf{r}_j$; 
 \STATE $\tilde{\beta}_j = \textbf{r}_j^T\textbf{s}_j$; \quad $\beta_j=sqrt(global\_sum(\tilde{\beta}_j))$;
 \STATE \textbf{if} $\beta_j == 0$ \textbf{then} \textbf{return}
-\STATE $\mu_j = max(\mu_{j-1}, \quad \alpha_j+\beta_j+\beta_{j-1})$; \COMMENT{Gershgorin circle theorem}\label{lan_gersh}\\
-%\ENDIF
-%\ENDFOR \\
-%//\qquad    \textit{do on master node}
-\STATE $T_j=tri\_diag(T_{j-1},\alpha_j,\beta_j)$; \quad $\nu_j = eigs(T_j,'smallest')$ ; \COMMENT{Tridiagonal}\label{lan_tm}
+\STATE $\mu_j = max(\mu_{j-1},\alpha_j+\beta_j+\beta_{j-1})$; \label{lan_gersh}\\
+\STATE $T_j=tri\_diag(T_{j-1},\alpha_j,\beta_j)$; \COMMENT{Tridiagonal}\label{lan_tm}
+\STATE $\nu_j = eigs(T_j,'smallest')$ ; \label{lan_nu}
 \STATE \textbf{if} $|\frac{\mu_j}{\mu_{j-1}} -1 |< \epsilon\quad\textbf{and}\quad|1- \frac{\nu_j}{\nu_{j-1}}|< \epsilon$ \textbf{then} \textbf{return}
 \STATE $\textbf{q}_{j+1}= \textbf{r}_j/\beta_j$;\quad $j=j+1$;
 \ENDWHILE
 \end{algorithmic}
 \end{algorithm}
 
-In step \ref{alg_tm} of Algorithm \ref{alg:lanczos}, $T_m$ is a tridiagonal matrix that contains $\alpha_i (i=1,2,...,m)$ as its diagonal entries and $\beta_i (i=1,2,...,m-1)$ as off-diagonal entries.
+The procedure of Lanczos-based eigenvalues estimation in the case of using a preconditioner is shown in Algorithm \ref{alg:lanczos_pre}. This algorithm assume that $\textbf{A}$ is positive defined symmetical matrix.  However, it is simple to adjust the algorithm for negative defined matrix as in our case. Just negating both $\textbf{A}$ and its preconditioner. 
+
+In step \ref{lan_tm} of Algorithm \ref{alg:lanczos_pre}, $T_m$ is a tridiagonal matrix that contains $\alpha_i (i=1,2,...,m)$ as its diagonal entries and $\beta_i (i=1,2,...,m-1)$ as off-diagonal entries.
 \[ T_{m} = tridiag\left(\begin{array}{ccccccc}
 &\beta_1 && \bullet & &\beta_{m-1}&    \\
 \alpha_1 & &\alpha_2 && \bullet &&\alpha_{m}\\
@@ -384,47 +444,158 @@ Let $\xi_{min}$ and $\xi_{max}$ be the smallest and largest eigenvalues of $T_m$
 $\lambda_{min} \le \xi_{min} \le \lambda_{min}+\delta_1(m)$ and $\lambda_{max}-\delta_2(m)  \le \xi_{max} \le \lambda_{max}$.
 %\end{equation}
 Here, $\delta_1(m)$ and $\delta_2(m)$ vanish in most cases as $m$ increases. Thus, the eigenvalue estimation of $A$ is transformed to solve the eigenvalues of $T_m$.
-Step \ref{Gersh} in Algorithm  \ref{alg:lanczos} employs the Gershgorin circle theorem to estimate the largest eigenvalue of $T_m$, that is,
+Step \ref{lan_gersh} in Algorithm  \ref{alg:lanczos_pre} employs the Gershgorin circle theorem to estimate the largest eigenvalue of $T_m$, that is,
 %\begin{equation}
 $\mu = \max_{1 \le i \le m}\sum^m_{j=1}|T_{ij}|=\max_{1 \le i \le m}(\beta_{i-1}+\alpha_i +\beta_{i})$.
 %\end{equation}
 %. In form of matrix, $\mu$ is the max element of vector $|A|u$, $|A| = (|a_{i,j}|)$, $u=(1,1,...,1)^T$. Here, matrix-vector multiplication $|A|u$, just like $Au$, is naturally supported by the parallelism of POP.
-
-The efficient QR algorithm \cite{ortega1963llt} with a complexity of $\Theta(m)$ is used to estimate the smallest eigenvalue $\nu$ in step \ref{nu}. As show in Fig. \ref{fig:lanczos}, a small number of Lanczos steps will generate favorable eigenvalue estimates of $A$, and make CSI converges at an optimal speed similar to PCG.
-
 \begin {figure}
 \centering
 \includegraphics[scale=0.5]{solver_iteration}
 \caption []{Relationship of CSI iterations and Lanczos steps in 1 degree POP \label {fig:iter}}
 \end {figure}
 
+The efficient QR algorithm \cite{ortega1963llt} with a complexity of $\Theta(m)$ is used to estimate the smallest eigenvalue $\nu$ in step \ref{lan_nu}. As show in Fig. \ref{fig:iter}, a small number of Lanczos steps will generate favorable eigenvalue estimates of $A$, and make CSI converges at an optimal speed similar to PCG.
+
+
 %As shown in the section \ref{se:exp}, the estimates $\mu$, $\nu$ in the methods mentioned above is close to the smallest and largest eigenvalues. As a result, CSI converges at a favorable speed.
 %(Pls re-explain why choose $\mu$ and $\nu$ using these methods. The above comments is really not convincing.
+
+
+\section{EVP Preconditioning} \label{se:evp}
+As shown in previous sections,  execution time of the barotropic solver is a multiplication of iteration number and the execution time per iteration. Both CSI Solver and the original ChronGear solver can be improved if their iteration number can be reduced at a reasonable cost. 
+As is the same in the ChronGear case, communication becomes the major bottleneck when the amount of computation becomes very small because large number of cores are used. 
+In the case of CSI, it is the boundary communication instead of the global communication which consumes the largest part of execution time. 
+In all these two cases, solver would be further improved if the iteration number can be decreased even at the sacrifice of more computation. 
+
+
+Here we employ a local inverse preconditioner using Error Vector Propagation method (EVP). 
+
+\subsection{Error Vector Propagation}
+\begin {figure}
+\centering
+\includegraphics[width=0.8\linewidth,height=0.6\linewidth]{evp9pmarch.png}
+\caption []{EVP marching method for nine-point stencil.\label {fig:evp9p}}
+\end {figure}
+EVP is a kind of fast direct solver for elliptic equations, which utilizes progapation technique based on the original equation. 
+The equation \ref{eq:sten} can be rewrite as 
+\begin{eqnarray}
+\label{eq:evp9p}
+&\eta_{i+1,j+1} = (1/A_{i,j}^{ne} )(\psi_{i,j} - A_{i,j}^0\eta_{i,j}-A_{i,j}^e\eta_{i+1,j} \nonumber\\
+&-A_{i,j}^n\eta_{i,j+1}-A_{i-1,j}^{ne}\eta_{i-1,j+1} +A_{i-1,j}^e\eta_{i-1,j}\nonumber\\
+&-A_{i-1,j-1}^{ne}\eta_{i-1,j-1}-A_{i,j-1}^n\eta_{i,j-1}- A_{i+1,j-1}^{ne}\eta_{i,j-1} )
+\end{eqnarray}
+Equation \ref{eq:evp9p} provides a way to calculate the northeast neighbour point when all other neighour points are known. 
+
+\begin{algorithm}[h]
+\caption{Nine-point Error Vector Propagation method.}
+\label{alg:evp}
+\begin{algorithmic}[1]
+\REQUIRE Residual $\psi$ associated with a domain containing $l\times k$ grids, $m = l+k-5$; \\
+//\qquad \textit{preprocessing }
+\STATE  $\textbf{x} = \textbf{0}$
+\FOR {i = 1 \TO m}
+\STATE $\textbf{x}|_\textbf{e}(i) = 1$
+\STATE $\textbf{x} = propagation(\textbf{x},\textbf{0})$
+\STATE $W(i,:) = \textbf{x}|_\textbf{f}$
+\STATE $\textbf{x}|_\textbf{e}(i) = 0$
+\ENDFOR 
+\STATE $R = inverse(W)$ \\
+//\qquad \textit{solving }
+\STATE $\textbf{x}= propagation(\textbf{x},\psi)$
+\STATE $F = \textbf{x}|_\textbf{f} - \eta|_\textbf{f}$
+\STATE $\textbf{x}|_\textbf{e} =\textbf{x}|_\textbf{e} - R*F$
+\STATE $\textbf{x} = propagation(\textbf{x},\psi)$
+\end{algorithmic}
+\end{algorithm}
+
+Here, we describe the EVP method on a smaller domain as shown in Fig. \ref{fig:evp9p}. For convinenince, interior points next to the bottom and left boundary and those on the top and right boundary are definded as intial guess points $\textbf{e}$ and final boundary points $\textbf{f}$. In the case shown in Fig. \ref{fig:evp9p}, $\textbf{e}= \{E_1, \dots, E_7\}$, $\textbf{f}= \{F_1, \dots, F_7\}$. Providing the value on $\textbf{e}$ are known, then value on all other points can be calculated one by one from left bottom to right top. 
+
+Unfortunately, the value of $\textbf{e}$ usually  is not known untill the elliptic equation is solved. 
+So at the begining, a guess $\textbf{x}|_\textbf{e}$ on $\textbf{e}$ is used to get the value on $\textbf{f}$. 
+Then $E=\textbf{x}|_\textbf{e} -\eta|_\textbf{e}$ and $F=\textbf{x}|_\textbf{f} -\eta|_\textbf{f}$ are error vectors on $\textbf{e}$ and $\textbf{f}$ respectively. 
+Since  $\textbf{f}$ are boundary points, the error vector on them are already known. 
+The relationship between error on inital guess points and final boundary points can be reprensented as $F=R^{-1}*E$. 
+The effect matrix $R^{-1}$ can be formed by propagating on the whole domain with unit vectors on the intial guess points and zero residual value on the whole domain. 
+The EVP for an elliptic equation with zero boundary is summerized in Algorithm \ref{alg:evp}. 
+
+
+\subsection{Local Inverse Preconditioning}
+
+EVP method is used to compute the inverse of each sub-matrix on the diagonal of A. 
+Reordering the grid block by block with size of $nxn$, the matrix becomes nine-diagonal block matrix. 
+Each row of this new matrix contains nine sub-matrix as following:
+\begin{eqnarray*}
+    \left [
+        \begin{array}{ccc}
+        B_i^{nw} &  B_i^n & B_i^{ne} \\
+        B_i^{w} &   B_i   & B_i^{e} \\
+        B_i^{sw} &  B_i^s & B_i^{se} \\
+    \end{array}
+    \right ]
+\end{eqnarray*}
+$B_i$ is a matrix containing coefficients of the grids in the i-th block, which share the same structure as $A$ but has a smaller size of $n^2\times n^2$. 
+$B_i^e$,$B_i^w$,$B_i^n$ and $B_i^s$ are diagonal block matrix containing coefficients of points on east, west, north and south boundary and the points on their respective neighbour blocks, thus have at most $3n$ nonzeros elements distributed on $n$ rows. 
+$B_i^{nw}$,$B_i^{ne}$,$B_i^{sw}$ and $B_i^{se}$ each contains only one nonzero element, representing the coefficient of corner points and their nearby points on the northwest, northeast, southwest and southeast blocks. 
+The inverse of the diagonal block matrices is used as a preconditioner. That is 
+\begin{eqnarray*}
+M^{-1}=    \left [
+        \begin{array}{ccccccc}
+        B_1^{-1} &   &  \\
+         & &\ddots  \\
+        &   &  B_{m^2}^{-1} \\
+    \end{array}
+    \right ]
+\end{eqnarray*}
+
+Using $M$ as a preconditioner, the preconditioning process $\textbf{x} = M^{-1}\textbf{y}$ in PCG and CSI is equal to solve equations $M_i \textbf{x}_i = \textbf{y}_i$ for each block. 
+Those equations would be solved using EVP method. 
+
+\begin{table}
+\centering
+\caption{Iteration number of different barotropic solvers. \label{tab:iteration_evp}}
+\begin{tabular}{|l|r|r|r|r|}
+%\toprule
+\hline
+Solvers & \multicolumn{2}{|c|}{ChronGear} & \multicolumn{2}{|c|}{CSI}\\ \hline
+Resolution &  1 degree  & 0.1 degree	& 1 degree  & 0.1 degree\\\hline
+Diagonal    &  240  & 100	&300 & 120\\\hline
+Evp         & 160   & 50	&200 & 60\\\hline
+%\bottomrule
+\end{tabular}
+\end{table}
+
+
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 \section{Experiments} \label{se:exp}
 %----------------------------------------------------------------------------
 %\subsection{Experimental Platform} \label{se:plat}
-To ensure that CSI will not introduce inaccuracies into POP, we conducted an experiment with the 1 degree POP on Explore100, which is described in section \ref{se:baro}. The calculated SSH of POP versions using PCG and CSI are compared in Table \ref{tab:err}. The mean difference between the PCG and CSI versions is small compared with the largest absolute SSH. It is interesting that large differences are only present at coastlines, where the sharp boundary causes instabilities in the difference scheme. The difference between the PCG and CSI versions is mainly due to the turbulence accumulation in the whole ocean model as the simulation period extends, rather than the error in each solver step.
 
-To test the scalability, we ran the 0.1 degree POP (3600 $\times$ 2400) on the Sunway BlueLight MPP Supercomputer at the National Supercomputing Center in China.  BlueLight contains 8,704 SW1600 processors, which are connected by a 40Gb InfiniBand network. Each processor consists of 16 1.1GHz cores that share 16 GB memory.
-
-To test the scalability, we ran CESM with a 0.1 degree POP component (3600 $\times$ 2400) on the Yellowstone Supercomputer at NCAR-Wyoming Supercomputing Center (NWSC) in Cheyenne, Wyoming,USA. 
+The performance of our new barotropic solvers are test in CESM1.2.0 on the Yellowstone Supercomputer at NCAR-Wyoming Supercomputing Center (NWSC) in Cheyenne, Wyoming,USA.  
 Yellowstone contains 72,576 Intel Sandy Bridge processors, which are connected by a 13.6 GBps InfiniBand network. Processors are 2.6-GHz Intel Xeon E5-2670 with Advanced Vector Extensions (AVX). 
 
-\begin{center}
-\begin{tabular}{|c|c|c|c|c|c|c|}
-\hline
-Platform & Processor &Speed    & Cores & Memory & Cache & Network \\
-\hline
-TS100 & Intel Xeon  & 2.93GHz & 12   &    24/48G   & 12M & InfiniBand QDR \\
-\hline
-SW  	  & SW1600    & 1.1GHz   & 16   & 16G       & N/A  & InfiniBand QDR\\
-\hline
-Yellowstone  & Intel Xeon    & 2.6GHz   & 16   & 32G       & 20M  & InfiniBand FDR \\
-\hline
-\end{tabular}
-\end{center}
+CESM1.2.0 run for 1 day without disk I/O. In order to eliminate the potential effect from other component models, G\_NORMAL\_YEAR compset is used to test the solver scalability. G compset is coupled ocean ice with COREv2 normal year forcing.  
+Two grid resolutions for POP are examined:: 
+
+\begin{itemize} 
+\item 1 degree resolution horizontal grid ($320\times 384$)
+\item 0.1 degree resolution horizontal grid ($3600\times 2400$)
+\end{itemize}
+
+%\begin{center}
+%\begin{tabular}{|c|c|c|c|c|c|c|}
+%\hline
+%Platform & Processor &Speed    & Cores & Memory & Cache & Network \\
+%\hline
+%TS100 & Intel Xeon  & 2.93GHz & 12   &    24/48G   & 12M & InfiniBand QDR \\
+%\hline
+%SW  	  & SW1600    & 1.1GHz   & 16   & 16G       & N/A  & InfiniBand QDR\\
+%\hline
+%Yellowstone  & Intel Xeon    & 2.6GHz   & 16   & 32G       & 20M  & InfiniBand FDR \\
+%\hline
+%\end{tabular}
+%\end{center}
 
 
 The execution time of the barotropic mode on a serial of cores is shown in Fig. \ref{fig:scale}. 
@@ -450,94 +621,33 @@ The Global reduction time becomes dominate in ChronGear when more than 1224 core
 
 Even though CSI takes more time in computation and updating due to a larger number of iteration in each step, it outperforms ChronGear because of global reduction.
 
-CESM1.2.0 run for 1 day without disk I/O. In order to eliminate the potential effect from other component models, G\_NORMAL\_YEAR compset is used to test the solver scalability. G compset is coupled ocean ice with COREv2 normal year forcing.  
 
-\begin{table}
-\centering
-\caption{Configuration of two CESM cases  used. \label{tab:caseinfo}}
-\begin{tabular}{|l|r|r|r|}
-%\toprule
-\hline
-Configure&  compset  & Ocn Grid &  Run type\\\hline
-1 degree & G &gx1v6(320x384) & hybrid \\\hline
-0.1 degree  &  G &tx0.1v2(3600x2400)  &startup \\\hline
-%\bottomrule
-\end{tabular}
-\end{table}
-\begin {figure}
-\centering
-\includegraphics[scale=0.5]{1deg_solverruntime_diagonal}
-\caption []{Runtime of ChronGear and CSI in the 1 degree POP for one simulation day. \label {fig:scale1}}
-\end {figure}
+%\begin{table}
+%\centering
+%\caption{Configuration of two CESM cases  used. \label{tab:caseinfo}}
+%\begin{tabular}{|l|r|r|r|}
+%%\toprule
+%\hline
+%Configure&  compset  & Ocn Grid &  Run type\\\hline
+%1 degree & G &gx1v6(320x384) & hybrid \\\hline
+%0.1 degree  &  G &tx0.1v2(3600x2400)  &startup \\\hline
+%%\bottomrule
+%\end{tabular}
+%\end{table}
 
-\begin {figure}
-\centering
-\includegraphics[scale=0.5]{01deg_solverruntime_diagonal}
-\caption []{Scalability of ChronGear and CSI in the 0.1 degree POP for one simulation day.\label {fig:scale01}}
-\end {figure}
+%\begin {figure}
+%\centering
+%\includegraphics[scale=0.5]{1deg_solverruntime_diagonal}
+%\caption []{Runtime of ChronGear and CSI in the 1 degree POP for one simulation day. \label {fig:scale1}}
+%\end {figure}
+%
+%\begin {figure}
+%\centering
+%\includegraphics[scale=0.5]{01deg_solverruntime_diagonal}
+%\caption []{Scalability of ChronGear and CSI in the 0.1 degree POP for one simulation day.\label {fig:scale01}}
+%\end {figure}
 
 %Fig.1(b) shows runtime ratio of barotropic and baroclinic modes of POP. Baroclinic mode deals with a three dimensional dynamical process which occupies a major proportion of computation of POP. It dominates in POP when process is few and computation time is much larger than communication. However, when using thousands of cores, runtime of baroclinic parts decreases linearly while on the opposite, runtime of barotropic increases because of global reduction.
-
-\section{EVP Preconditioning} \label{se:evp}
-As shown in Fig. \ref{fig:scale}, even though CSI Solver is much better than the orginal ChronGear solver, it stops scaling after four thousands of cores are used.
-As is the same in the ChronGear case, communication becomes the major bottleneck when the amount of computation becomes very small because large number of cores are used. 
-However, in the case of CSI, it is the boundary communication instead of the global communication which consumes the largest part of execution time. 
-In all these two cases, solver would be further improved if the iteration number can be decreased even at the sacrifice of more computation. \\
-Here we employ a local inverse preconditioner. That is, 
-Reordering the grid block by block, the matrix becomes nine-diagonal block matrix. 
-Each line of this block matrix contains nine sub-matrix. 
-\begin{eqnarray*}
-    \left [
-        \begin{array}{ccc}
-        A_i^{NW} &  A_i^N & A_i^{NE} \\
-        A_i^{W} &  A_i &  A_i^{E} \\
-        A_i^{SW} &  A_i^S & A_i^{SE} \\
-    \end{array}
-    \right ]
-\end{eqnarray*}
-
-The inverse of the diagonal block matrices is used as a preconditioner. That is 
-\begin{eqnarray*}
-M=    \left [
-        \begin{array}{ccccccc}
-        A_1 &   &   &   &   &   &    \\
-         &  A_2 &   &   &   &   &   \\
-         & &\ddots  &   &   &   &   \\
-        &   &   & A_i  &   &   &    \\
-        &   &   &   & \ddots  &   &  \\ 
-        &   &   &   &   &  A_{n-1} &   \\
-        &   &   &   &   &   & A_{n} \\
-    \end{array}
-    \right ]
-\end{eqnarray*}
-
-EVP method is used to compute the inverse of each sub-matrix on the diagonal of A. 
-As shown in Fig. \ref{fig:evp9p}, guess a intial value on line next to the bottom boundary and the left boundary, then marching to the whole domain. The error vector can be get by minusing the righ and top boundary value to the marching results on them. 
-The relationship between error on the left and bottom boundary and the one on the right and top boundary can be reprensented as $F=R*E$. 
-
-
-\begin {figure}
-\centering
-\includegraphics[width=1\linewidth,height=0.75\linewidth]{evp9pmarch.png}
-\caption []{EVP marching method for nine-point stencil.\label {fig:evp9p}}
-\end {figure}
-
-
-\begin{table}
-\centering
-\caption{Iteration number of different barotropic solvers. \label{tab:iteration_evp}}
-\begin{tabular}{|l|r|r|r|r|}
-%\toprule
-\hline
-Solvers & \multicolumn{2}{|c|}{ChronGear} & \multicolumn{2}{|c|}{CSI}\\ \hline
-Resolution &  1 degree  & 0.1 degree	& 1 degree  & 0.1 degree\\\hline
-Diagonal    &  240  & 100	&300 & 120\\\hline
-Evp         & 160   & 50	&200 & 60\\\hline
-%\bottomrule
-\end{tabular}
-\end{table}
-
-
 \begin {figure}
 \centering
 \includegraphics[scale=0.5]{1deg_solverruntime}
@@ -599,9 +709,67 @@ CSI+Evp	      &0.71 &1.70&3.54  &4.36 &5.12 &6.38&8.10\\
 \end{table*}
 
 
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+\section{Related work} \label{se:rel}
+%----------------------------------------------------------------------------
+%improving barotropic
+To ensure that CSI will not introduce inaccuracies into POP, we conducted an experiment with the 1 degree POP on Explore100, which is described in section \ref{se:baro}. The calculated SSH of POP versions using PCG and CSI are compared in Table \ref{tab:err}. The mean difference between the PCG and CSI versions is small compared with the largest absolute SSH. It is interesting that large differences are only present at coastlines, where the sharp boundary causes instabilities in the difference scheme. The difference between the PCG and CSI versions is mainly due to the turbulence accumulation in the whole ocean model as the simulation period extends, rather than the error in each solver step.
 
+The barotropic mode makes up a large proportion of the total execution time of POP, especially when it runs on a large number of cores. Much work has been done on optimizing the performance of the barotropic mode, most of which has been related to decreasing the amount of communication between processes and accelerating the computation of each process. The total costs of global reduction are proportional to the number of processes , and the communications overhead becomes increasingly intolerable as the number of processes increasing. OpenMP parallelism and land elimination are common strategies for reducing the number of processes and the associated MPI overhead. Worley et al. \cite{Worley:2011:PCE:2063384.2063457} strongly recommended the OpenMP strategy when a large count of cores are needed for the baroclinic phase, but a large number of processes would cause communications difficulties in the barotropic phase.
+Dennis \cite{dennis2007inverse,dennis2008scaling} proposed a load-balancing strategy based on newly developed space-filling curve partitioning algorithms. The strategy not only eliminates land blocks, but also decreases the communications overhead because of the reduced number of processes.  The simulation rate on approximately 30,000 processors doubles after applying this strategy. Reducing the frequency of communication also attenuates the overhead in the barotropic mode.
+As early as 1997,  Beare \cite{beare1997optimisation} proposed the performance of parallel ocean general circulation models can be improved by increasing the number of extra halos and overlapping the communications with the computation.
+
+Another way to break the bottleneck of the barotropic mode is to improve algorithm and preconditioning of the PCG method.
+A variant of the standard conjugate gradient method presented by D'Azevedo \cite{dAzevedo1999lapack}, called the Chronopoulos-Gear algorithm, proposed a way to halve the global communication in PCG.  It combines the two separate global reductions into a single global reduction vector by rearranging the conjugate gradient computation procedure, and achieves a one third latency reduction in POP. Preconditioning has been highlighted in the CG method since the 1990s. Many linear systems converge after a few PCG iterations with a suitable preconditioner.  Adamidis et al. \cite{adamidis2011high} implemented an incomplete Cholesky preconditioner in the global ocean/sea-ice model MPIOM to improve the scalability and performance of PCG.
+%Watanabe \cite{Watanabe2006pcg}  used  PCG combined with an overlapping domain decomposition method to improve the convergence and reduce the communications cost between the processor elements.
+
+The improvement of the methods described above is limited due to the inherent poor data locality and sequential execution of PCG. Some work has been done to accelerate the PCG solver by employing the developing hybrid  accelerating devices, such as GPUs\cite{cuomo2012pcg} and FPGAs\cite{Shida2007}.
+%Cuomo et al. \cite{cuomo2012pcg} introduced the sparse approximate inverses preconditioning method into the numerical global circulation ocean model and implemented it on a GPU using a scientific computing code library.
+%Shida et al. \cite{Shida2007} moved the barotropic mode onto FPGAs, and found comparative performance on 100MHz FPGAs as on GHz processors with the appropriate use of internal memory and streaming DMA.
+GPUs and FPGAs are helpful in reducing the global overhead. These devices have stronger computational ability and more memory than common CPU, so fewer devices and less communication are needed for the same scale computing job.
+
+
+%----------------------------------------------------------------------------
+\section{Conclusion} \label{se:conc}
+Much work has been done to improve the barotropic mode in POP. However, most of the methods described above did not eliminate the cause of the poor scalability of the barotropic mode of POP. This paper presents a performance model of the barotropic mode that quantifies the scalability of PCG. The advantage of CSI is demonstrated based on the analysis of this model. CSI is implemented in POP and shows better scalability than PCG. In closing, this paper highlights a promising complement to PCG with elliptic equations.
+%\end{document}  % This is where a 'short' article might terminate
+
+%ACKNOWLEDGMENTS are optional
+\section{Acknowledgments}
+This section is optional; it is a location for you
+to acknowledge grants, funding, editing assistance and
+what have you.  In the present case, for example, the
+authors would like to thank Gerald Murray of ACM for
+his help in codifying this \textit{Author's Guide}
+and the \textbf{.cls} and \textbf{.tex} files that it describes.
+
+%
+% The following two commands are all you need in the
+% initial runs of your .tex file to
+% produce the bibliography for the citations in your paper.
+\bibliographystyle{abbrv}
+\bibliography{hycs}  % sigproc.bib is the name of the Bibliography in this case
+% You must have a proper ".bib" file
+%  and remember to run:
+% latex bibtex latex latex
+% to resolve all references
+%
+% ACM needs 'a single self-contained file'!
+%
+%APPENDICES are optional
+%\balancecolumns
 \section{Verification} \label{se:ver}
 %----------------------------------------------------------------------------
+To meet the increasing computational requiremnts, it is a common scenario for modelers to improve some numerical methods and to try new architectures and compilers in order to utilize the exploring computational resources. 
+However, the chaotic nature of climate models makes it extremely difficult to verify any kind of changes to them. A tiny perturbation added to the intial condition or intermediate result leads to large difference in the final result.
+We adopt the definition of model verification is open referred to "ensuring that the computer program of computerized model and its implementation are correct"\cite{sargent2005verification}.
+
+
+Porting validation of the current CESM is subjective and one-sided\cite{vertenstein2011cesm1}.
+It provides basically two way. 
+First, users run a set of cases on their own machine, plot the final results and compare them to the standard diagnostics plot. 
+The second one is to compare difference of several variables produced on local machine and standard machines. 
+CESM utilizes the Root Mean Square Error to measure the difference.
 
 It is a common scenario for modelers to change some numerical methods, such as try different solvers and convergence tolerance, and to port the model to another machine with different architecture and compilers. While now there is no standard and effective verification and validation techneques.  
 We adopt the definition of model verification is open reffered to "ensuring that the computer program of computerized model and its implementation are correct". \\
@@ -890,52 +1058,5 @@ Fig. \ref{fig:ssh_rmsz_30S} and shows the monthly RMSZ of SSH in different toler
 \caption[] {Monthly SSH Root Mean Square Z-score of different tolerance cases based on an ensemble of 41 members in the 60N-90N region.}
 \label{fig:ssh_rmsz_60n}
 \end{figure}
-%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-\section{Related work} \label{se:rel}
-%----------------------------------------------------------------------------
-%improving barotropic
-The barotropic mode makes up a large proportion of the total execution time of POP, especially when it runs on a large number of cores. Much work has been done on optimizing the performance of the barotropic mode, most of which has been related to decreasing the amount of communication between processes and accelerating the computation of each process. The total costs of global reduction are proportional to the number of processes , and the communications overhead becomes increasingly intolerable as the number of processes increasing. OpenMP parallelism and land elimination are common strategies for reducing the number of processes and the associated MPI overhead. Worley et al. \cite{Worley:2011:PCE:2063384.2063457} strongly recommended the OpenMP strategy when a large count of cores are needed for the baroclinic phase, but a large number of processes would cause communications difficulties in the barotropic phase.
-Dennis \cite{dennis2007inverse,dennis2008scaling} proposed a load-balancing strategy based on newly developed space-filling curve partitioning algorithms. The strategy not only eliminates land blocks, but also decreases the communications overhead because of the reduced number of processes.  The simulation rate on approximately 30,000 processors doubles after applying this strategy. Reducing the frequency of communication also attenuates the overhead in the barotropic mode.
-As early as 1997,  Beare \cite{beare1997optimisation} proposed the performance of parallel ocean general circulation models can be improved by increasing the number of extra halos and overlapping the communications with the computation.
-
-Another way to break the bottleneck of the barotropic mode is to improve algorithm and preconditioning of the PCG method.
-A variant of the standard conjugate gradient method presented by D'Azevedo \cite{dAzevedo1999lapack}, called the Chronopoulos-Gear algorithm, proposed a way to halve the global communication in PCG.  It combines the two separate global reductions into a single global reduction vector by rearranging the conjugate gradient computation procedure, and achieves a one third latency reduction in POP. Preconditioning has been highlighted in the CG method since the 1990s. Many linear systems converge after a few PCG iterations with a suitable preconditioner.  Adamidis et al. \cite{adamidis2011high} implemented an incomplete Cholesky preconditioner in the global ocean/sea-ice model MPIOM to improve the scalability and performance of PCG.
-%Watanabe \cite{Watanabe2006pcg}  used  PCG combined with an overlapping domain decomposition method to improve the convergence and reduce the communications cost between the processor elements.
-
-The improvement of the methods described above is limited due to the inherent poor data locality and sequential execution of PCG. Some work has been done to accelerate the PCG solver by employing the developing hybrid  accelerating devices, such as GPUs\cite{cuomo2012pcg} and FPGAs\cite{Shida2007}.
-%Cuomo et al. \cite{cuomo2012pcg} introduced the sparse approximate inverses preconditioning method into the numerical global circulation ocean model and implemented it on a GPU using a scientific computing code library.
-%Shida et al. \cite{Shida2007} moved the barotropic mode onto FPGAs, and found comparative performance on 100MHz FPGAs as on GHz processors with the appropriate use of internal memory and streaming DMA.
-GPUs and FPGAs are helpful in reducing the global overhead. These devices have stronger computational ability and more memory than common CPU, so fewer devices and less communication are needed for the same scale computing job.
-
-
-%----------------------------------------------------------------------------
-\section{Conclusion} \label{se:conc}
-Much work has been done to improve the barotropic mode in POP. However, most of the methods described above did not eliminate the cause of the poor scalability of the barotropic mode of POP. This paper presents a performance model of the barotropic mode that quantifies the scalability of PCG. The advantage of CSI is demonstrated based on the analysis of this model. CSI is implemented in POP and shows better scalability than PCG. In closing, this paper highlights a promising complement to PCG with elliptic equations.
-%\end{document}  % This is where a 'short' article might terminate
-
-%ACKNOWLEDGMENTS are optional
-\section{Acknowledgments}
-This section is optional; it is a location for you
-to acknowledge grants, funding, editing assistance and
-what have you.  In the present case, for example, the
-authors would like to thank Gerald Murray of ACM for
-his help in codifying this \textit{Author's Guide}
-and the \textbf{.cls} and \textbf{.tex} files that it describes.
-
-%
-% The following two commands are all you need in the
-% initial runs of your .tex file to
-% produce the bibliography for the citations in your paper.
-\bibliographystyle{abbrv}
-\bibliography{hycs}  % sigproc.bib is the name of the Bibliography in this case
-% You must have a proper ".bib" file
-%  and remember to run:
-% latex bibtex latex latex
-% to resolve all references
-%
-% ACM needs 'a single self-contained file'!
-%
-%APPENDICES are optional
-%\balancecolumns
 
 \end{document}
