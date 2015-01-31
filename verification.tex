@@ -1,0 +1,66 @@
+\section{Verification} \label{se:ver}
+%To ensure that P-CSI will not introduce inaccuracies into POP, we conducted an experiment with the 1\degree POP. 
+%Porting validation of the current CESM is subjective and one-sided\cite{vertenstein2011cesm1}.
+%It provides basically two way. 
+%First, users run a set of cases on their own machine, plot the final results and compare them to the standard diagnostics plot. 
+%The second one is to compare difference of several variables produced on local machine and standard machines. 
+%CESM utilizes the Root Mean Square Error to measure the difference.
+%\begin{figure}[!ht]
+%\begin{center}
+%\vspace{0pt}
+%\includegraphics[width=1\linewidth,height=1\linewidth, trim={{0.0\linewidth} {0.0\linewidth} {0.4\linewidth} {1.2\linewidth}}, clip]{high-res.png}
+%\end{center}
+%\vspace{-20pt}
+%\caption[] {Sea surface potential temperature.(will use SST error ) }
+%
+%\label{fig:ssT}
+%\end{figure}
+
+There is no direct verification tool for new solvers  in CESM POP currently, but it provides a way to facilitate the evaluation of a successful port on new machines. That is, to run a specific case on the new machine for five days, then compute the root-mean-square (RMS) difference of SSH field between the solution on local machine and those released as standard dataset by NCAR.
+
+
+
+This procedure provides a criterion for validating CESM results on new machines which may contain error associated with machines and compilers. 
+However, it fails to measure the error due to changes in solvers. 
+We run the 1 \degree case for three years with different convergence tolerances varying from $10^{-10}$ to $10^{-16}$ in the barotropic solver. 
+Define RMSE as the RMS difference between a given case and the more strict tolerance case. Only the open seas are considered here to filter out several marginal seas where POP does not simulate well. 
+As shown in Fig.\ref{fig:ssh_rmse_t}, temperature RMSE of cases with different convergence tolerances do not reveal the correct order of error from solver. 
+The cases with a tolerance of $10^{-10}$  and $10^{-11}$ should have bigger RMSE than others. However, during the twelfth month and twentieth months, the $10^{-10}$ case has almost the smallest RMSE. In the last two months, the case $10^{-11}$ has a smaller RMSE than all other cases except the $10^{-10}$ case, which also conflicts its order in view of solver error. 
+
+RMSE reveals the difference between two cases. However, it is not a good criterion for new algorithms because it does not take into consideration of the chaotic nature of climate models.  In order to make the chaotic nature accounted, we employ the methodology as proposed in CESM atmosphere component CAM by Baker et al. \cite{baker2014methodology}. First we conduct an ensemble of runs which are identical to the original case except for a $10^{-14}$ perturbation in the initial temperature. This perturbation is a reasonable round-off error which climate model should be able to tolerate. 
+\begin{figure}[!t]
+\begin{center}
+%\vspace{-20pt}
+%\includegraphics[width=1\linewidth, trim={{0.2\linewidth} {0.8\linewidth} {1.2\linewidth} {1.4\linewidth}}, clip]{TEMP_RMSE.png}
+\includegraphics[width=1\linewidth]{TEMP_RMSE.png}
+\end{center}
+%\vspace{-10pt}
+\caption[] {Monthly Temperature Root Mean Square Error of different tolerance cases.}
+\label{fig:ssh_rmse_t}
+
+\end{figure}
+
+Assume the output of the ensemble at time $T$ is $\mathcal{E}=\{X_1,X_2,...,X_m\}$, where 
+$m$ is the size of the ensemble. 
+For a given point $j$, we have a series of possible results from the ensemble $\{X_1(j),X_2(j),...,X_m(j)\}$.
+As the ensemble size increases, this series reflects more correctly the distribution of reasonable result at the given point. 
+Define the mean of this series $$ \mu (j) = \frac{1}{m}\sum_{i=1}^m X_i(j) $$
+The standard deviation of this series  $$ \delta (j) = \sqrt{\frac{1}{m} \sum_{i=1}^m (X_i(j)-\mu(j))^2 }$$
+The combination of $\mu$ and $\delta$ provides a criterion to test whether an additional case is close to the ensemble or not. 
+Set the additional case has the result $\tilde{x}$, define the root-mean-square Z-score 
+$$ RMSZ(\tilde{X}, \mathcal{E}) =  \sqrt{\frac{1}{n}\sum_{j=1}^n(\frac{\tilde{X}(j) -\mu (j)}{\delta (j)})^2}$$
+
+
+Different tolerance cases are re-evaluated using RMSZ. 
+As shown in Fig.\ref{fig:ssh_rmsz_t}, the ensemble cases provides a criterion to judge whether the case  is consistent with the them or not. Also, for those cases which depart so far away from the ensemble, such as the cases with the first and second largest tolerance, their RMSZ is in the same order as the order of error they introduced to the solver.  
+\begin{figure}[!t]
+\begin{center}
+%\includegraphics[width=1\linewidth, trim={{0.2\linewidth} {0.8\linewidth} {1.2\linewidth} {1.4\linewidth}}]{TEMP-RMSZ-ensemble40-month-tol-opensea.png}
+\includegraphics[width=1\linewidth]{TEMP-RMSZ-ensemble40-month-tol-opensea.png}
+
+\end{center}
+\vspace{-10pt}
+\caption[] {Monthly TEMP Root Mean Square Z-score of different tolerance cases based on an ensemble of 40 members.}
+\label{fig:ssh_rmsz_t}
+\end{figure}
+%So the error introduced by replacing ChronGear with PCG is in the same magnitude order of improving the convergence tolerance from $10^{-13}$ to $10^{-14}$ or $10^{-16}$. 

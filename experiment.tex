@@ -1,0 +1,155 @@
+\section{Experiments} \label{se:exp}
+%----------------------------------------------------------------------------
+%\subsection{Experimental Platform} \label{se:plat}
+
+The performance of our new barotropic solver is tested in CESM1.2.0 on the Yellowstone Supercomputer at NCAR-Wyoming Supercomputing Center (NWSC) in Cheyenne, Wyoming,USA.  
+Yellowstone contains 72,576 Intel Sandy Bridge processors, which are connected by a 13.6 GBps InfiniBand network. Processors are 2.6-GHz Intel Xeon E5-2670 with Advanced Vector Extensions (AVX). 
+
+We run CESM1.2.0 for several days without disk I/O to test the solver scalability. 
+To focus on the performance of POP,  we use the G\_NORMAL\_YEAR component set which couples ocean and ice with COREv2 normal year forcing.  
+Two grid resolutions for POP are examined:
+\begin{itemize} 
+\item 1\degree resolution horizontal grid ($320\times 384$)
+\item 0.1\degree resolution horizontal grid ($3600\times 2400$)
+\end{itemize}
+The suggested space-filling curve method for distributing blocks across processors is used in 0.1\degree case. 
+%\begin{center}
+%\begin{tabular}{|c|c|c|c|c|c|c|}
+%\hline
+%Platform & Processor &Speed    & Cores & Memory & Cache & Network \\
+%\hline
+%TS100 & Intel Xeon  & 2.93GHz & 12   &    24/48G   & 12M & InfiniBand QDR \\
+%\hline
+%SW  	  & SW1600    & 1.1GHz   & 16   & 16G       & N/A  & InfiniBand QDR\\
+%\hline
+%Yellowstone  & Intel Xeon    & 2.6GHz   & 16   & 32G       & 20M  & InfiniBand FDR \\
+%\hline
+%\end{tabular}
+%\end{center}
+
+\begin {figure}[!t]
+\centering
+\includegraphics[scale=0.5]{1deg_solverruntime}
+\caption []{Runtime of barotropic solvers in the 1\degree POP for five days.\label {fig:runtime1}}
+\end {figure}
+
+
+The execution time of the barotropic solvers in 1\degree POP on a series of cores is shown in Fig.\ref{fig:runtime1}. 
+P-CSI out-performs ChronGear on different processor cores and reduces the solver execution time from 0.60s to 0.44s per simulation day, that is a 1.4X speedup. 
+EVP preconditioning provides speedup for both ChronGear and P-CSI. In the case of 384 cores, EVP preconditioner achieves a speed of 0.33s per simulation day which is 1.8X of the original ChronGear solver. 
+
+A similar scenario happens in the case of 0.1\degree POP. 
+As shown in Fig.\ref{fig:runtime01}, ChronGear stops scaling after 2,634 cores. While P-CSI scales well until 4,028 cores are used. 
+The implementation of P-CSI in the 0.1\degree resolution POP accelerates the barotropic mode by 4.7 times, from 12.8s to 2.7s per simulation day, on 9,128 cores. 
+
+
+
+
+%\begin{table}
+%\centering
+%\caption{Configuration of two CESM cases  used. \label{tab:caseinfo}}
+%\begin{tabular}{|l|r|r|r|}
+%%\toprule
+%\hline
+%Configure&  compset  & Ocn Grid &  Run type\\\hline
+%1\degree & G &gx1v6(320x384) & hybrid \\\hline
+%0.1\degree  &  G &tx0.1v2(3600x2400)  &startup \\\hline
+%%\bottomrule
+%\end{tabular}
+%\end{table}
+
+
+%Fig.1(b) shows runtime ratio of barotropic and baroclinic modes of POP. Baroclinic mode deals with a three dimensional dynamical process which occupies a major proportion of computation of POP. It dominates in POP when process is few and computation time is much larger than communication. However, when using thousands of cores, runtime of baroclinic parts decreases linearly while on the opposite, runtime of barotropic increases because of global reduction.
+As talked about in section \ref{se:baro}, execution time of the barotropic solver takes an increasing percentage of the whole model. 
+Thus improvement in barotropic mode will benefit the speed of the whole POP model, especially when large numbers of processor cores are used. 
+\begin{table}[!h]
+%\vspace{-10pt}
+\centering
+\caption{Percentage of improvement of the execution time in 1\degree POP. \label{tab:improve_1}}
+\begin{tabular}{|l|r|r|r|r|}
+%\toprule
+\hline
+Number of cores & 48  & 96  & 192& 384 \\\hline
+ChronGear+EVP &0.1\% &0.9\%	&5.8\%&7.9\% \\\hline
+P-CSI+Diagonal  & 1.5\% &2.4\%&7.9\%  &7.9\% \\\hline
+P-CSI+EVP	      &0.3\%& 2.3\%	&10.0\%  &13.0\% \\\hline
+%\bottomrule
+\end{tabular}
+\end{table}
+
+\begin {figure}[!t]
+\centering
+\includegraphics[scale=0.5]{01deg_solverruntime}
+\caption []{Runtime of barotropic solvers in the 0.1\degree POP for one day.\label {fig:runtime01}}
+\end {figure}
+Detailed improvement of the whole model compared with the original diagonal preconditioned ChronGear solver would be found in Table \ref{tab:improve_1}. The combination of P-CSI and EVP preconditioner improves the whole model by 13.0\% on 384 processor cores. 
+Detailed improvement of the 0.1 \degree POP  would be found in Table \ref{tab:improve_01}. 
+The combination of P-CSI and EVP preconditioner improves the whole model by 25.7\% on 9128 processor cores. 
+EVP preconditioning contributes 7.8\% improvement to the original ChronGear solver, as well as 3.4\% extra improvement to P-CSI solver. 
+
+
+
+\begin{figure*}[!t]
+\begin{center}
+	\includegraphics[width=1.0\linewidth]{01solvercomp_withoutbound.eps}
+\end{center}
+\caption[] {Time components of barotropic solvers in 0.1\degree POP. Four kinds of solvers are ChronGear or P-CSI with a diagonal preconditioner or an EVP preconditioner. (a) Execution time of global reduction, (b) Execution time of boundary communication, (c) Execution time of computing. }
+\label{fig:component}
+\end{figure*}
+
+\begin{table*}
+\centering
+\caption {Percentage of improvement of the total execution time in 0.1\degree POP. \label{tab:improve_01}}
+\begin{tabular}{|l|r|r|r|r|r|r|r|r|}
+%\toprule
+\hline
+Number of cores & 512  & 1224   & 2634 & 3476 & 4028 & 6124 & 9128 & 12330\\
+\hline
+ChronGear+Evp &-0.3\% &0.2\%&3.4\%  & 6.2\%& 8.3\% & 10.7\%& 12.4\% & 14.0\%\\\hline
+P-CSI+Diagonal  & 1.3\% & 2.1\%	&7.5\%  &12.1\% &15.6\% &23.2\% &22.3\% &30.5\%\\\hline
+P-CSI+Evp	      &-0.2\% & 1.1\%&6.5\%  &12.2\% &16.5\% &26.0\% &25.7\% &35.0\%\\
+\hline
+%\bottomrule
+\end{tabular}
+\end{table*}
+
+\begin{table*}
+%\vspace{-10pt}
+\centering
+\caption {Ideal simulation rate of 0.1\degree POP \label{tab:improve_01}}
+\begin{tabular}{|l|r|r|r|r|r|r|r|r|}
+%\toprule
+\hline
+Number of cores & 512  & 1224   & 2634 & 3476 & 4028 & 6124 & 9128 & 12330\\
+\hline
+ChronGear     &0.71 &1.69&3.31  &3.83 &4.28 &4.72&6.02 &6.33\\\hline
+ChronGear+Evp &0.70 &1.68&3.42  &3.99 &4.53 &5.08&6.69 &7.34\\\hline
+P-CSI+Diagonal  &0.72 &1.72&3.58  &4.36 &5.07 &6.15&7.75& 9.11\\\hline
+P-CSI+Evp	      &0.71 &1.70&3.54  &4.36 &5.12 &6.38&8.10 & 9.74\\
+\hline
+%\bottomrule
+\end{tabular}
+\end{table*}
+Simulation rate (simulated years per wall-clock day) is a popular criterion for model performance. Here we use the ideal simulation rate (only the execution time of STEP function in POP counts) in order to get rid of the effect from initialization, preprocessing  and disk I/O. To satisfy a rate of 5 simulated years per wall-clock day, which is the minimum necessary simulation rate to run long term climate simulations, ChronGear requires more than 6124 cores while P-CSI requires only 4028 cores. 
+The EVP preconditioned P-CSI solver improves the ideal simulation rate of POP from 6.02 to 8.10 simulated years per wall-clock day. 
+
+To understand the source of improvement, more detail about the barotropic solver is provided in Fig.\ref{fig:component}.
+Fig.\ref{fig:component} tells that P-CSI outperforms ChronGear mainly because of less global reduction. 
+Even though EVP preconditioning almost doubles the execution time of computation, it helps to reduce both boundary and global communication. 
+%Exception happens when small number of cores are used, due to load imbalance. 
+\begin {figure}
+%\vspace{-5pt}
+\centering
+\includegraphics[width=1.0\linewidth]{POPStepComp_pcsi.eps}
+\caption[] {Percentage of execution time in 0.1\degree POP using the P-CSI solver.\label{fig:StepComp_pcsi}}
+%\vspace{-10pt}
+\end{figure}
+It is interesting that when less than 4,000 cores are used, the execution time of global reduction and boundary communication does not decrease after replacing the diagonal preconditioner with EVP preconditioner for P-CSI. 
+This is mainly due to the load imbalance of POP. 
+The less the number of cores are used, the bigger the block size on each process is. 
+Because of the existence of land, bigger block size leads to more imbalance between blocks.   
+This explains why the execution time of global reduction decreases when less than 1,224 cores are used, which conflicts with the theoretical result in equation \ref{t_pcg} and \ref{t_psi}. 
+EVP preconditioning enlarges this load imbalance because it almost doubles the execution time of computation.
+Thus, even though the iteration number is reduced to a half in the case of EVP preconditioned P-CSI, each communication takes longer to complete 
+ 
+%Even though P-CSI takes more time in computation and updating due to a larger number of iteration in each step, it outperforms ChronGear because of less global reduction.

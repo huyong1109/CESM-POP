@@ -1,0 +1,167 @@
+\section{Barotropic Solver} \label{se:baro}
+%----------------------------------------------------------------------------
+POP solves three-dimensional primitive equations with hydrostatic and Boussinesq approximations.
+The time integration separates the dynamics into baroclinic and barotropic modes.
+The baroclinic mode describes the three-dimensional dynamic process while
+the barotropic mode solves the vertically-integrated momentum and continuity equations \cite{smith2010parallel}.
+
+The most time-consuming portion of the barotropic simulation is the solution of the elliptic system for the sea surface height (SSH)
+due to the implicit free-surface algorithm\cite{pop05}. 
+
+The implicit elliptic equations of SSH in POP can be expressed as follows:
+\begin{equation}
+\label{eq:ssh}
+[\nabla \cdot H\nabla  -\phi(\tau)]\eta^{n+1} = \psi(\eta^n,\eta^{n-1},\tau)
+\end{equation}
+where $H$ is the depth of the ocean, $\tau$ is the time step  and $\eta^n$ is the SSH at the n-th time step, and $\psi$ represents a function of previous states.
+Equation (\ref{eq:ssh}) is then discretized on a two-dimensional grid using a nine-point stencil in POP. The stencil can be reorganized into a linear system $Ax =b$.
+%$A_{i,j}^0$, $A_{i,j}^n$, $A_{i,j}^e$ and $A_{i,j}^{ne}$ are symmetrical coefficients between grid point $(i,j)$ and its neighbors, determined by $H$, $\tau$ and the grid lengths. The stencil confined to grid point $(i,j)$ is
+%\begin{eqnarray}
+%\label{eq:sten}
+%&A_{i,j}^0\eta_{i,j}+A_{i,j}^e\eta_{i+1,j}+A_{i,j}^n\eta_{i,j+1} +A_{i,j}^{ne}\eta_{i+1,j+1}\nonumber\\
+%&+A_{i-1,j}^{ne}\eta_{i-1,j+1} +A_{i-1,j}^e\eta_{i-1,j}+A_{i-1,j-1}^{ne}\eta_{i-1,j-1}\nonumber\\
+%&+A_{i,j-1}^n\eta_{i,j-1}+ A_{i+1,j-1}^{ne}\eta_{i,j-1}=\psi_{i,j}
+%\end{eqnarray}
+
+For massive parallelism, POP divides the global domain into blocks and distributes them to processes. 
+Each process only computes the evolution procedures related to the grids in its own block, and maintains a halo region to update data with its neighbors.
+
+
+For simplicity, we can assume that the global domain size is $\mathcal{N}\times \mathcal{N}$,
+which can be divided into $m\times m$ blocks with size of $n\times n$ ($n=\mathcal{N}/m$). 
+Let $B$ and $\tilde{x}$ be the coefficient matrix and vector associated with a given block (i.e., a sub-matrix of $A$ with a size of $n^2\times n^2$),
+then the matrix-vector multiplication of $B\tilde{x}$ has $9n^2$ multiplication operations \cite{hu2013scalable}.
+%----------------------------------------------------------------------------
+\subsection{ChronGear Solver }
+ChronGear \cite{dAzevedo1999lapack} is a modified conjugate gradient method.
+%with a diagonal preconditioner $M = \Lambda(A)$.
+It combines two global reductions into one, which achieves a one-third
+latency reduction when solving the linear system in POP that
+approximates the barotropic mode.
+
+However, as previously mentioned, when thousands of cores are used in high-resolution (0.1\degree) POP,
+the global reduction needed by the inner product in ChronGear becomes a major bottleneck.
+This decrease in performance is demonstrated in
+Fig.\ref{fig:StepComp} for  0.1\degree POP.  The execution time for the linear solve increases as the number of processor cores increases. 
+When 512 cores are used, the execution time of the barotropic solver is only 4\% of the total execution of POP, which is much smaller than the baroclinic mode time (90\%). 
+However, when a few thousand cores are used, the baroclinic execution
+time appropriately decreases, while the barotropic solver time
+increases and exhibits poor scalability. 
+When over six thousand cores are used, the percentage of the
+barotropic solver execution time reaches 32\%, and the baroclinic mode
+has been reduced to 50\%.   This trend continues at higher core counts.
+
+\begin {figure}[!t]
+\vspace{-5pt}
+\centering
+\includegraphics[scale=0.5]{POPStepComp}
+\caption[] {Percentage of execution time in 0.1\degree POP using the default ChronGear solver.\label{fig:StepComp}}
+\end{figure}
+
+
+\begin{algorithm}[!h]
+\caption{Chronopoulos-Gear Solver}
+\label{alg:pcg}
+\begin{algorithmic}[1]
+\REQUIRE Coefficient matrix $\textbf{B}$, preconditioner $\textbf{M}$, initial guess $\textbf{x}_0$ and $\textbf{b}$ associated with grid block $B_{i,j}$ \\
+//\qquad    \textit{do in parallel with all processes}
+\STATE $\textbf{r}_0 = \textbf{b}-\textbf{B}\textbf{x}_0$, $\textbf{s}_0 =0$, $\textbf{p}_0 =0$;\quad $\rho_0=1$,$\sigma_0=0$, $k=0$;
+\WHILE{$k \leq k_{max}$ }
+\STATE $k=k+1$;
+\STATE $\textbf{r}'_{k} =\textbf{M}^{-1}\textbf{r}_{k-1}$; \label{pcg_scale1} \COMMENT{preconditioning}
+\STATE $\textbf{z}_k = \textbf{B}\textbf{r}'_{k}$; \label{pcg_mat}\COMMENT {matrix-vector multiplication}
+\STATE $update\_halo(\textbf{z}_{k})$; \COMMENT{boundary communication} \label{pcg_bc1}
+\STATE $\tilde{\rho_k} = \textbf{r}_{k-1}^T\textbf{r}'_{k}$;\label{pcg_dot1}
+\STATE $\tilde{\delta_k} = \textbf{z}_k^T\textbf{r}'_k$;\label{pcg_dot2}
+\STATE $(\rho_k,\delta_k) = global\_sum(\tilde{\rho_k},\tilde{\delta_k})$;\label{pcg_global1} \COMMENT{global reduction}
+\STATE $\beta_k = \rho_k / \rho_{k-1}$;\label{pcg_beta}
+\STATE $\sigma_k = \delta_k - \beta_k^2\sigma_{k-1}$;\label{pcg_sigma}
+\STATE $\alpha_k = \rho_k /\sigma_{k}$;\label{pcg_alpha}
+\STATE $\textbf{s}_k = \textbf{r}'_{k-1} +\beta_k\textbf{s}_{k-1}$;\label{pcg_scale1}
+\STATE $\textbf{p}_k = \textbf{z}_{k} +\beta_k\textbf{p}_{k-1}$;\label{pcg_scale2}
+\STATE $\textbf{x}_k =\textbf{x}_{k-1} +\alpha_k \textbf{s}_k$;\label{pcg_scale3}
+\STATE $\textbf{r}_k =\textbf{r}_{k-1} -\alpha_k\textbf{p}_k$;\label{pcg_scale4}
+\IF{ $k \% n_{c} == 0$}
+\STATE check convergence;
+\ENDIF
+%\STATE \textbf{if} $||\textbf{r}_k|| \le \epsilon$  \textbf{return} ;\COMMENT{check convergence every $n_c$ iterations}
+%\ENDIF
+\ENDWHILE
+\end{algorithmic}
+\end{algorithm}
+
+For reference, the ChronGear method is provided in Algorithm
+\ref{alg:pcg}.  As shown in Algorithm \ref{alg:pcg}, the ChronGear
+solver mainly contains three parts: computation, boundary updating,
+and global reduction.  Computation involves matrix-vector and
+vector-vector multiplications and vector scaling, all of which have good scalability.  The boundary communication that is required to
+update the halo area after the matrix-vector multiplication is also
+non-problematic as the amount of communication required is
+bounded. The most time-consuming global-reduction process is the inner
+product operation shown in step \ref{pcg_global1}.
+
+%----------------------------------------------------------------------------
+\subsection{Communication Bottleneck}\label{se:bottleneck}
+Assume $p=m^2$ processes are used and each process has exactly one
+grid block (a reasonable choice for POP on a massively parallel machine),
+the total time of the barotropic mode is equal to the execution time of the ChronGear solver on any block.
+For each solver iteration, we choose $\mathcal{T}_c$, $\mathcal{T}_b$ and $\mathcal{T}_g$ to be the execution time of the computation,
+boundary updating and global reduction, respectively.
+%----------------------------------------------------------------------------
+
+
+Algorithm \ref{alg:pcg} indicates that the computation involves four vector scaling operations in
+steps \ref{pcg_scale1},  \ref{pcg_scale2} ,\ref{pcg_scale3} and  \ref{pcg_scale4},
+two vector-vector multiplication operations of the inner products in steps \ref{pcg_dot1} and \ref{pcg_dot2},
+and one matrix-vector multiplication operation in step \ref{pcg_mat}. 
+$\mathcal{T}_c= (4 n^2 +2n^2+ 9n^2)\theta + \mathcal{T}_{p}  =15\frac{\mathcal{N}^2}{p}\theta+\mathcal{T}_{p}$,
+where $\theta$ is the time unit per floating-point operation and
+$\mathcal{T}_{p}$ is the execution time of preconditioning which may vary depending on the applied preconditioner.
+For example, $\mathcal{T}_{p} =  \frac{\mathcal{N}^2}{p}\theta$ when a diagonal preconditioner is used. 
+When the number of processes increases, $\mathcal{T}_c$ decreases and has a lower limit of zero.
+
+Boundary updating occurs in the halo regions for each process, after operations like matrix-vector multiplication and non-diagonal preconditioning which requires one or more boundary layers. 
+It is worth mentioning that only one boundary updating is needed each iteration even when a non-diagonal preconditioner is used, because every process keeps its own block and two extra halo layers in POP. 
+The actual time depends on the network delay and the volume of the halo regions.
+Since the halo size is $2$, the volume in each boundary is $2n$ and decreases as the number of processes increases. 
+%It is worth mentioning that the preconditioning process usually requires at least one boundary layer,
+%except for the diagonal preconditioner, which means that values on the outmost points are not updated after preconditioning. 
+The total updating time for each iteration is then $\mathcal{T}_b =4\alpha +(4\times 2n)\beta=4\alpha +(\frac{8\mathcal{N}}{\sqrt{p}})\beta $,
+where $\alpha$ is point-to-point communication latency per message and $\beta$ accounts for transfer time per byte (inverse of bandwidth). 
+The updating time also decreases as the number of processes increases but has a lower bound of $4\alpha$.
+
+
+There is only one global reduction in a ChronGear iteration,
+thus the reduction time satisfies $\mathcal{T}_g= \log p \alpha$, assuming that a binomial tree approach is used in the reduction operation.
+Obviously, $\mathcal{T}_g$ increases monotonically with the number of processes $p$.
+Note that the global reduction has virtually no data exchange since there is only one number from each process.
+%Let $T_0$ be the time unit of one floating-point operation and $B$ be the number of floating-point numbers transmitted by the network per second from process to process.
+%Provided that the processor frequency and network bandwidth are $S_{cpu}$ and $B_{net}$, and that their efficiencies are $R_{cpu}$ and $R_{net}$, then $T_0 = R_{cpu} S_{cpu}^{-1}$, and $B = \frac{1}{8}R_{net}B_{net}$.
+By considering the all three parts, the execution time of one diagonal preconditioned ChronGear solver step can be expressed as:
+\begin{eqnarray}
+%\begin{tabular}{l}
+\label{t_pcg}
+&\mathcal{T}_{cg}=\mathcal{K}_{cg} (\mathcal{T}_c + \mathcal{T}_b+\mathcal{T}_g )\nonumber \\
+&=\mathcal{K}_{cg} [16 \frac{\mathcal{N}^2}{p}\theta + \frac{8\mathcal{N}}{\sqrt{p}}\beta +(4+\log p)\alpha]
+%\end{tabular}
+\end{eqnarray}
+where $K_{cg}$ is the number of iterations in one ChronGear step which does not change with the number of processes \cite{hu2013scalable}.
+Equation (\ref{t_pcg}) shows that the time required for computation and boundary updating decreases as the number of processes increases.
+But the time required for global reduction increases with increasing
+numbers of processes. Therefore, we expect the execution time of the
+ChronGear solver to increase when the number of processors exceeds a certain threshold.
+Indeed, the scaling behavior of ChronGear in the 0.1\degree POP is consistent with the above analysis (Fig.\ref{fig:ChronGearCOMP}).
+The execution time of global reduction becomes dominant and increases when more than 2,634 cores are used.
+
+
+\begin{figure}[!t]
+\vspace{-10pt}
+\begin{center}
+	\includegraphics[width=1.0\linewidth]{ChronGear_comp.eps}
+\end{center}
+\caption[] {Time components of ChronGear Solver in 0.1\degree POP}
+\label{fig:ChronGearCOMP}
+\end{figure}
+%However,it still inherits the poor scalability from PCG.  
+%We tested the diagonal preconditioned ChronGear solver in  0.1\degree POP, and found that the scaling behavior is consistent with the above analysis. As shown in Fig.\ref{fig:ChronGearCOMP}, the execution time of global reduction becomes dominates in the ChronGear solver and increases when more than 2634 cores are used.
+

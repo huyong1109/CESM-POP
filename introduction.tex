@@ -1,0 +1,105 @@
+\section{Introduction} \label{se:int}
+% no \IEEEPARstart
+High-resolution global climate models have become increasing important
+in recent years as a means for
+understanding past climate variability and projecting future climate
+change.  The Community Earth System Model (CESM),
+whose development is centered at the National Center for Atmospheric
+Research (NCAR), is one of the most widely used global climate models,
+and its climate projections are a key component in the Intergovernmental
+Panel on Climate Change (IPCC) Fifth Assessment Report (AR5)
+\cite{stocker2013ipcc}.
+
+CESM is a fully-coupled climate model system, including
+atmosphere, ocean, sea-ice and land components.  In contrast with the
+atmosphere and land, the ocean has a broader spatial scale, ranging
+from tens of kilometers of the ocean basins into the sub-mesoscale
+eddies, and a broader temporal scale, ranging from the order of days
+for gravity waves to centuries for slow planetary waves.  As a result,
+ocean models have to iterate for a longer time at a finer resolution,
+which makes them the most computationally intensive part of climate
+models \cite{Worley:2011:PCE:2063384.2063457,dennis2012computational}.
+Many recent studies demonstrate that high-resolution ocean models are
+required in order to produce more realistic and accurate predictions
+\cite{bryan2010frontal,mcclean2011prototype,graham2014importance}.
+ 
+
+Moreover, climate model simulations are often performed for decades or
+even centuries, however, these long-term simulation are too
+computationally expensive to run at high-resolution.  For example,
+most CESM simulations in IPCC AR5 are carried out with a nominal
+1\degree ocean model and a 1\degree to 2\degree atmosphere model.
+Recently, the increasing computational power of supercomputers and
+high-resolution satellite observations have inspired much research
+that focuses on adapting high-resolution climate models for massive
+parallelism.
+
+As noted, in most production simulations, the least scalable 
+component of CESM is the ocean model Parallel Ocean Model (POP)
+\cite{dennis2012computational}.  POP solves the three-dimensional
+primitive equations with hydrostatic and Boussinesq approximations
+\cite{smith2010parallel}.  The time integration is divided into two
+parts: the baroclinic mode and the barotropic mode.  The implicit
+free-surface method is commonly used in the barotropic mode ocean
+models because it allows a large time step to efficiently compute the
+fast gravity mode.  However, this method requires the solution of a
+large elliptic system of equations, which can potentially cause poor
+scalability for the barotropic mode in the parallelization.  In fact,
+much attention has focused on the poor scaling performance of the
+barotropic mode in POP,  which is dominated by
+the communication overhead \cite{Worley:2011:PCE:2063384.2063457}, and
+it is recognized that
+optimization of the barotropic mode of POP will benefit the whole
+climate model  \cite{dennis2012computational} .
+
+
+The Chronopoulos-Gear (ChronGear) method \cite{dAzevedo1999lapack},
+which is a modified Preconditioned Conjugate Gradient method (PCG),  is
+the default linear solver for the POP barotropic mode.  For
+high-resolution simulations, the required global reduction results in
+poor scalability. To improve the scaling of POP, and, therefore CESM, 
+we focus on optimizing the barotropic solver.  In particular, we
+eliminate the global reductions, which is a major impediment to 
+scalability.  We make the following contributions:
+
+
+%MOVE TO RELATED WORK
+%There are currently different alternatives to mitigate the poor behavior of the PCG type of solver in the massive parallelization.
+%Some approaches attempt to overlap the communication with computation time\cite{beare1997optimisation}.
+%Some use the land elimination and load-balance strategies \cite{dennis2007inverse, dennis2008scaling}
+%to reduce the number of processes and the associated overhead of global reduction.
+%Although these approaches may improve performance, they do not eliminate the major bottleneck of the global reduction.
+
+
+
+\begin{itemize}
+\item We improve the convergence of the Classical Stiefel Iteration
+  (CSI) solver proposed in \cite{hu2013scalable} via an effective
+  Error Propagation method (EVP) \cite{roache1995elliptic}
+  preconditioner. The resulting preconditioned CSI (P-CSI) solver
+  significantly reduces the number of CSI iterations at each time
+  step.
+\item
+We implement the P-CSI solver (and EVP preconditioner)  in CESM1.2 and evaluate its performance.
+\item
+We apply an ensemble-based statistical method to evaluate the impact
+of the new P-CSI solver and ensure that a consistent climate is produced.
+\end{itemize}
+
+
+ The remainder of this paper is organized as follows.
+
+ Section \ref{se:baro} briefly introduces the barotropic solver of POP
+ and evaluates the scalability of the iterative methods
+ theoretically. %{\bf what a communication model?}
+ Section \ref{se:psi} and \ref{se:evp} detail the design of P-CSI in
+ POP and the EVP preconditioner.  Section \ref{se:exp} compares the
+ scalability of the ChronGear and P-CSI solvers.  Section \ref{se:ver}
+ verifies the new P-CSI solver using the ensemble based statistical
+ method.  Finally, related work is described in section \ref{se:rel}
+ and the conclusion is presented in section \ref{se:conc}.
+
+%{\textbf better to move related work in the next section.}
+
+% You must have at least 2 lines in the paragraph with the drop letter
+% (should never be an issue)

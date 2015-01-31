@@ -1,0 +1,203 @@
+\section{Error Vector Propagation (EVP) Preconditioning} \label{se:evp}
+Equations (\ref{t_pcg}) and (\ref{t_psi}) show that the total execution time of the barotropic solver is the multiplication of
+iteration number and the execution time per iteration.
+Also, the execution time of computation in each iteration decreases with increasing number of processor cores, while the execution time of communication increases.
+In order to reduce communication cost, we look for a preconditioning technique that reduces iterations to converge. 
+Both P-CSI and ChronGear solvers can benefit greatly from the reduction of iteration number assuming that the cost of preconditioning is reasonable. 
+
+It is challenging to precondition CG method for large sparse linear systems developed from elliptic equations on parallel computers. 
+Three major concerns of preconditioners for those large systems are efficiency, scalability and preprocessing costs. 
+Much study in applications like underground flow, shows that the simple diagonal scaling 
+is the most efficient preconditioning scheme \cite{pini1990simple, reddy2013comparison}.
+Thus only a diagonal preconditioner is implemented in the latest version of POP.
+
+
+%The data distribution and communication cost can only tolerate lower level of factorization like ILU(0). L and U have the same nonzero structure as the lower and upper parts of A respectively, which often results in a crude approximation has a very bad effect on convergence speed. 
+%More accurate ILU factorizations is not suit for ocean model, because it requires more communications and computations. 
+%Also, the preprocessing cost to compute the factors is higher. 
+
+%In 1985, Concus et al. \cite{concus1985block} used the banded approximate of the matrix inverse as a preconditioner,
+%and achieved higher efficiency than other preconditioners on elliptic partial differential equations. 
+%NOTE YH what is "local approximate inverse of the true operator"? 
+%Smith et al. \cite{smith1992parallel} employed a polynomial preconditioning method and a local approximate-inverse method.
+%POP supports a preconditioner consisting of a 9-point operator which is a local approximate-inverse of the true operator.
+
+\subsection{Block Preconditioning}
+
+The most widely used preconditioning techniques in sequential simulations are the incomplete factorization methods like incomplete LU factorization (ILU) and its variants \cite{benzi2002preconditioning}.
+However, they are ill-suited for parallel computers because they require a recursive operation which limits parallelization. 
+
+Some paralleliziable preconditioning methods like polynomial preconditioning, approximate inverse preconditioning and block preconditioning have moved to center stage in parallel numerical simulations recently.
+Even though polynomial preconditioning can reduce iterations as effectively as ILU when a high order polynomial is used, the computation overhead offsets its superiority to diagonal scaling preconditioning \cite{meyer1989numerical,smith1992parallel}. 
+A $k$th-order polynomial preconditioner requires $k-1$ matrix vector multiplications in each iteration. 
+The approximate inverse preconditioner is less powerful but is highly parallelized \cite{smith1992parallel,bergamaschi2007numerical}.
+The attraction of its tiny superiority to diagonal scaling preconditioning is often ignored because of its time-consuming computation of the preconditioning matrix,
+which involves solving several times larger linear equation than the one it preconditions. 
+
+Block preconditioning is an effective way to adapt the traditional preconditioners for parallelism \cite{concus1985block, white2011block}. 
+It makes use of the block structure of the coefficient matrix arising from discretization of elliptic eqautions, and do factorizations block-by-block instead of point-by-point. 
+
+
+\begin {figure}
+\centering
+\includegraphics[width=0.8\linewidth]{blockpreconditioning.eps}
+\caption[] {Sparsity pattern of the coefficient matrix developed from nine-point stencils. 
+The whole domain is divided into $3\times3$ non-overlapping blocks.
+Elements in red rectangles are coefficients between points in blocks. 
+Elements in blue rectangles are coefficients between points from the $i$-th block and its neighbor blocks. \label{fig:blockprecond}}
+\end{figure}
+
+Reordering the grid block by block with size of $n\times n$, the coefficient matrix $A$ becomes a nine-diagonal block matrix. 
+Each row of this reordered matrix contains nine sub-matrix as shown in Fig \ref{fig:blockprecond}. %(arranged in their spatial relationship)
+$B_i$ (as in red blocks) is a matrix containing coefficients of the grids in the i-th block, which share the same structure as $A$ but has a smaller size of $n^2\times n^2$. 
+$B_i^e$,$B_i^w$,$B_i^n$ and $B_i^s$ are diagonal block matrix containing coefficients of points on east, west, north and south boundaries and the points on their respective neighbor blocks, thus have at most $3n$ nonzero elements distributed on $n$ rows. 
+$B_i^{nw}$,$B_i^{ne}$,$B_i^{sw}$ and $B_i^{se}$ each contains only one nonzero element, representing the coefficient of corner points and their nearby points on the northwest, northeast, southwest and southeast blocks. 
+
+The original block preconditioning method constructs the approximate inverse of $A$ by serially factorizing it with approximations of $B_i^{-1}$, which is ill-suited for parallel applications. 
+%the diagonal approximation or approximation from Cholesky factors of $B_i^{-1}$
+On the contrary, the inverse of the block diagonal of $A$, which provides a good approximation for $A$, can be calulated naturally in parallel.
+The inverse of the diagonal block matrices is  
+\begin{eqnarray*}
+M^{-1}=    \left [
+        \begin{array}{ccccccc}
+        B_1^{-1} &   &  \\
+         & \ddots&  \\
+        &   &  B_{m^2}^{-1} \\
+    \end{array}
+    \right ]
+\end{eqnarray*}
+Using this $M$ as a preconditioner, the preconditioning process $\textbf{x} = M^{-1}\textbf{y}$ is usually transformed into solving the sparse linear equations $B_i \textbf{x}_i = \textbf{y}_i$ for each block,
+instead of explicitly constructing $B_i^{-1}$.
+Because less computation is required in solving the equations with LU decomposition than multipying $\textbf{y}$ by $M^{-1}$. 
+
+\subsection{Error Vector Propagation Method}
+The arithmetic complexity of solving the eqautions $B_i \textbf{x}_i = \textbf{y}_i$ with LU decomposition is $\mathcal{O}(n^4)$, providing that the LU docompsition is previously initialized.
+The ILU method is much more efficient when only the approximate solution is required, as like in preconditioning. 
+However, the ILU method often provides approximations which are too crude to be used as preconditioners.
+
+To the best of our knowledge, the most efficient way to solve elliptic equations is the Error Vector Propagation method \cite{roache1995elliptic}. 
+%EVP is an alternative of fast direct solvers for elliptic equations, 
+The major process of the EVP method is marching over the whole domains based on the discretized equations, with an arithmetic complexity $\mathcal{O}(n^2)$.
+The EVP method and its variant have been used in some ocean models (e.g., CANadian version of DIEcast \cite{sheng1998candie} and Sandia Ocean Modeling System \cite{dietrich1987ocean}).
+Tseng and Chien \cite{tseng2011parallel} employed a modified parallel EVP method based on domain-decomposition as a solver for the global ocean model. 
+
+
+\begin {figure}[!t]
+\centering
+\includegraphics[width=0.8\linewidth]{evp9pmarch.png}
+\caption []{EVP marching method for nine-point stencil. The solution on point $(i+1,j+1)$ can be calculated using the equation on point $(i,j)$, providing solutions on other neighbor points of point $(i,j)$ (all magenta points).  \label {fig:evp9p}}
+\end {figure}
+Equation \ref{eq:ssh} can be discretized as 
+\begin{eqnarray}
+\label{eq:evp9p}
+&\eta_{i+1,j+1} = (1/A_{i,j}^{ne} )(\psi_{i,j} - A_{i,j}^0\eta_{i,j}-A_{i,j}^e\eta_{i+1,j} \nonumber\\
+&-A_{i,j}^n\eta_{i,j+1}-A_{i-1,j}^{ne}\eta_{i-1,j+1} +A_{i-1,j}^e\eta_{i-1,j}\nonumber\\
+&-A_{i-1,j-1}^{ne}\eta_{i-1,j-1}-A_{i,j-1}^n\eta_{i,j-1}- A_{i+1,j-1}^{ne}\eta_{i,j-1} )
+\end{eqnarray}
+which provides a relation to compute the northeast location when all other neighboring points are exactly known.
+An example for a Dirichlet boundary elliptic equation $B\textbf{x} = \psi$ on a small domain is illustrated in Fig.\ref{fig:evp9p}. 
+
+For convenience, the interior points next to the left and bottom boundaries
+are defined as initial guess points $\textbf{e}$ and those next to the top and right boundaries are the final boundary points $\textbf{f}$
+(e.g., $\textbf{e}= \{E_1, \dots, E_7\}$, $\textbf{f}= \{F_1, \dots, F_7\}$ in Fig.\ref{fig:evp9p}).
+Providing the true solution on $\textbf{e}$ is known, the value on all other points can be calculated
+one by one from southwest to northeast corners, using equation \ref{eq:evp9p}. This procedure is referred as marching. 
+Unfortunately, the value on $\textbf{e}$ is often unknown until the elliptic equation is solved. 
+However, we can get a solution $\textbf{x}$ satisfying the elliptic equation on the whole domain except on the boundary,
+by first guessing the value $\textbf{x}|_\textbf{e}$ on $\textbf{e}$ and then calculating the rest using the marching method. 
+Then $E=(\textbf{x} -\eta)|_\textbf{e}$ and $F=(\textbf{x} -\eta)|_\textbf{f}$ are error vectors on $\textbf{e}$ and $\textbf{f}$, respectively. 
+The error vector $F$ is already known since $\textbf{f}$ are boundary points (Dirichlet boundary condition is imposed).
+The relationship between the error on initial guess points and the final boundary points can be represented as $F=W*E$. 
+This influence coefficient matrix $W$ can be formed by marching on the whole domain with unit vectors on the initial guess points and zero residual value on the whole domain. 
+
+
+
+\begin{algorithm}[!h]
+\caption{Nine-point Error Vector Propagation method}
+\label{alg:evp}
+\begin{algorithmic}[1]
+\REQUIRE Residual $\psi$ associated with a domain containing $n\times n$ grids, $k = size(\textbf{e})=2n-5$; \\
+//\qquad \textit{preprocessing }
+\STATE  $\textbf{x} = \textbf{0}$
+\FOR {i = 1 \TO k}
+\STATE $\textbf{x}|_\textbf{e}(i) = 1$
+\STATE $\textbf{x} = marching(\textbf{x},\textbf{0})$
+\STATE $W(i,:) = \textbf{x}|_\textbf{f}$
+\STATE $\textbf{x}|_\textbf{e}(i) = 0$
+\ENDFOR 
+\STATE $R = inverse(W)$ \\
+//\qquad \textit{solving }
+\STATE $\textbf{x}= marching(\textbf{x},\psi)$
+\STATE $F = (\textbf{x} - \eta)|_\textbf{f}$
+\STATE $\textbf{x}|_\textbf{e} =\textbf{x}|_\textbf{e} - R*F$
+\STATE $\textbf{x} = marching(\textbf{x},\psi)$
+\end{algorithmic}
+\end{algorithm}
+
+We summarized the EVP algorithm for an elliptic equation with zero boundary in Algorithm \ref{alg:evp}. 
+The EVP method contains two processes: preprocessing and solving. In the preprocessing step, the influence coefficient matrix
+and its inverse are computed, involving a calculation of  $\mathcal{C}_{pre}= ((2n-5)* 9n^2 + (2n-5)^3 = \mathcal {O} (26n^3)$.
+The solution is then directly solved in the solving step with a calculation of $\mathcal{C}_{evp}= 2* 9n^2 + (2n-5)^2 = \mathcal{O} (22n^2)$. 
+The operation counts indicate that the EVP is more efficient than other direct solvers like LU decomposition
+and iterative methods like PCG for elliptic equations, if considering only the solving step.
+The preprocessing is only needed once at the beginning to obtain the influence coefficient matrix and its inverse.
+
+\subsection{EVP as A Parallel Preconditioner}
+The EVP method described in Algorithm \ref{alg:evp} provides a way to solve the linear equations $B_i \textbf{x}_i = \textbf{y}_i$ efficiently, 
+thus makes it possible to use the block diagonal of $A$ as a preconditioner. 
+Here, we employ a block preconditioning technique based on the EVP method in POP.
+Each preconditioning solves ellipitic equations $B_i^{-1} \textbf{x} = \textbf{y}  (i=1,...,m^2)$ in parallel. 
+%We use the original version of EVP as the local preconditioner for simplicity and efficiency. 
+%We developed a new preconditioning method inspired by the block preconditioning. 
+
+EVP can not solve large domain problems without any modification because of its numerical instability, however, it can 
+solve a small domain up to the size of $12\times 12$ with an acceptable round-off error of $10^{-8}$ when single-precision floating-point format is used. %should there be proof for this? 
+%Even though EVP method can be adapted to solve elliptic equations on irregular geometries. 
+%Thus, we construct preconditioning matrices with small blocks. 
+
+Furthermore, we find that the coefficients related to north, south, east and west neighbors on every point are one magnitude order smaller than others. 
+Removing these coefficients reduces the cost of calculating the EVP preconditioning matrix and the preconditioning process to about a half,
+while has little impact on reducing the iteration number for both ChronGear and P-CSI. 
+As a result, the execution time of EVP preconditioning can be expressed as $\mathcal{T'}_{p} = 14n^2\theta= 14\frac{\mathcal{N}^2}{p}\theta$. 
+This cost depends on the size of the local block, thus decreases as more processor cores are used.
+%In the current version of POP, using non-diagonal preconditioning methods requires an additional boundary communication after the preconditioning in each iteration. 
+%However, we find that the later boundary communication can be skipped by utilizing the fact that the halo size is 2. 
+Thus, the total execution time for one ChronGear and P-CSI solver step are 
+\begin{eqnarray}
+\label{t_evppcg}
+&\mathcal{T'}_{cg}=\mathcal{K'}_{cg} (\mathcal{T'}_c + \mathcal{T'}_b+\mathcal{T'}_g )\nonumber \\
+&=\mathcal{K'}_{cg} [29 \frac{\mathcal{N}^2}{p}\theta + \frac{8\mathcal{N}}{\sqrt{p}}\beta +(4+\log p)\alpha]
+\end{eqnarray}
+\begin{eqnarray}
+\label{t_evppsi}
+\mathcal{T'}_{pcsi} = \mathcal{K'}_{pcsi}(\mathcal{T'}_c + \mathcal{T'}_b ) \nonumber \\
+= \mathcal{K'}_{pcsi}[26\frac{\mathcal{N}^2}{p}\theta+ 4\alpha + \frac{8\mathcal{N}}{ \sqrt{p}}\beta]
+\end{eqnarray}
+
+\begin {figure}[!t]
+\centering
+\includegraphics[width=1.0\linewidth]{iteration.eps}
+\caption[] {Average iteration number of different barotropic solvers. \label{fig:iteration}}
+\end{figure}
+
+%\begin{table}
+%\centering
+%\caption{Average iteration number of different barotropic solvers. \label{tab:iteration_evp}}
+%\begin{tabular}{|l|c|c|c|c|}
+%%\toprule
+%\hline
+%Resolution & \multicolumn{2}{|c|}{1\degree} & \multicolumn{2}{|c|}{0.1\degree}\\ \hline
+%Solvers& ChronGear  & P-CSI & ChronGear	 & P-CSI  \\\hline
+%NONE&  540  &570	& 150	 & 160  \\\hline
+%DIAG&  240  &300	& 100	 & 120 \\\hline
+%EVP &  160  &200	& 50	 & 60  \\\hline
+%%\bottomrule
+%\end{tabular}
+%\end{table}
+The implementation of EVP preconditioning in POP reduces iterations a lot in both ChronGear and P-CSI solvers. 
+As shown in Fig. \ref{fig:iteration}, EVP preconditioning reduces  iterations to about one third in both 1\degree and 0.1 \degree cases, which is comparable to the approximate-inverse preconditioner proposed in \cite{smith1992parallel}. 
+The EVP preconditioning doubles the computation in each iteration, while halves both global  and boundary communication which dominates in the barotropic execution time when large numbers of processor cores are used.
+One advantage of EVP preconditioning is the low cost of solving the preconditioning matrix. 
+%EVP preconditioning matrix is totally parallelized, while traditional decomposition based preconditioning requires serial processing. 
+In 0.1\degree case, the cost of the preconditioning matrix is about 70\% of one solver step when 512 processor cores are used. 
+This cost will further decrease when more cores are used. 

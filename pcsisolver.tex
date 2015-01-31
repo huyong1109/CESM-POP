@@ -1,0 +1,142 @@
+\section{P-CSI Solver} \label{se:psi}
+%----------------------------------------------------------------------------
+To address the scalability bottleneck in POP, a barotropic solver that
+requires as few global reductions as possible is desired.
+%Originally less efficient methods, such as Chebyshev iteration, were reconsidered in POP. 
+%Chebyshev iteration was revisited by Gutknecht \cite{gutknecht2002chebyshev} in 2002, and was identified as being suitable for massively parallel computers with high communications costs. 
+In \cite{hu2013scalable},  Hu et al. developed an appropriate solver based
+on Stiefel's Chebyshev iteration method (CSI) and do a preliminary
+evaluation at modest core counts in a standalone version of POP.
+Here, we further improve the CSI by developing an effective preconditioner and implement the optimized P-CSI solver in the POP within the CESM framework. 
+%P-CSI provides interfaces for different kinds of preconditioner. 
+% As early as 1985, Saad et al.\cite{saad1985solving} implemented a generalization of P-CSI on a linear array of processors and claimed that this generalization is more favorable than conjugate gradient method in some cases when the eigenvalues are known.
+
+\subsection{Algorithm and Evaluation} \label{se:psialg}
+Like CSI, P-CSI does not require inner product operations and thus eliminates the bottleneck of global reduction as in PCG and ChronGear.
+Instead of requiring prior knowledge about the spectrum of the coefficient matrix $A$, P-CSI needs the spectrum of the preconditioned matrix $M^{-1}A$.
+For real symmetric and positive definite matrices with preconditioners,
+such as the coefficient matrix $A$ and its corresponding diagonal preconditioner $M = \Lambda(A)$ in POP,
+only approximations of the largest and smallest eigenvalues $\lambda_{max}$ and $\lambda_{min}$ of $M^{-1}A$ are needed to ensure the convergence of P-CSI. 
+These two extreme eigenvalues can be estimated efficiently by the Lanczos method. 
+The pseudo code of the new P-CSI algorithm designed for POP is shown in Algorithm 2.
+
+\begin{algorithm}[!t]
+\caption{Preconditioned Classical Stiefel Iteration solver}
+\label{alg:ppsi}
+\begin{algorithmic}[1]
+\REQUIRE Coefficient matrix $\textbf{B}$, preconditioner $\textbf{M}$, initial guess  $\textbf{x}_0$ and right hand side vector $\textbf{b}$ associated with grid block $B_{i,j}$; Estimated eigenvalue boundary $[\nu,\mu]$;  \\
+ // \qquad    \textit{do in parallel with all processes}
+\STATE $\alpha =\frac{2}{\mu -\nu}$, $ \beta = \frac{\mu +\nu}{\mu -\nu}$, $\gamma = \frac{\beta}{\alpha}$, $\omega_0 =\frac{ 2}{\gamma}$;\quad $k = 0$;
+\STATE $\textbf{r}_0 = \textbf{b}-\textbf{B}\textbf{x}_0$; $\textbf{x}_1 =\textbf{x}_0 -\gamma^{-1}\textbf{M}^{-1}\textbf{r}_0$; $\textbf{r}_1 =\textbf{b} -\textbf{B}\textbf{x}_1$; 
+\WHILE{$k \leq k_{max}$ }
+\STATE $k=k+1$;
+\STATE $\omega_k = 1/(\gamma - \frac{1}{4\alpha^2}\omega_{k-1})$; \COMMENT{the iterated function}
+\STATE $\textbf{r}'_{k-1} =\textbf{M}^{-1}\textbf{r}_{k-1}$; \COMMENT{preconditioning} \
+\STATE $\Delta \textbf{x}_{k} =\omega_k\textbf{r}'_{k-1}+(\gamma \omega_k-1)\Delta \textbf{x}_{k-1}$; 
+\STATE $\textbf{x}_{k} =\textbf{x}_{k-1}+\Delta \textbf{x}_{k-1}$; 
+\STATE $\textbf{r}_{k} =b- \textbf{B}\textbf{x}_{k}$; \COMMENT{matrix--vector multiplication}
+\STATE $update\_halo(\textbf{r}_k)$; \COMMENT{boundary communication}
+\IF { $k \%  n_{c} == 0$ }
+\STATE check convergence;
+\ENDIF
+\ENDWHILE
+\end{algorithmic}
+\end{algorithm}
+
+The P-CSI algorithm and its properties are similar to that of the CSI
+algorithm detailed in \cite{hu2013scalable}, with the exception of an
+additional preconditioner, which is described in detail in the next
+section. Thus, the total computation time of each iteration in the diagonal preconditioned P-CSI solver is $T_c =\frac{12\mathcal{N}^2}{p}\theta+\mathcal{T}_p =\frac{13\mathcal{N}^2}{p}\theta$
+and the total execution time for each P-CSI solver step is
+\begin{eqnarray}
+\label{t_psi}
+\mathcal{T}_{pcsi} = \mathcal{K}_{pcsi}(\mathcal{T}_c + \mathcal{T}_b ) \nonumber \\
+= \mathcal{K}_{pcsi}[13\frac{\mathcal{N}^2}{p}\theta+ 4\alpha + \frac{8\mathcal{N}}{ \sqrt{p}}\beta]
+\end{eqnarray}
+where $K_{pcsi}$ is the number of iterations in one P-CSI solver step.  
+
+Note that the overall convergence rate of P-CSI will be slower than
+that of the PCG or ChronGear method and, 
+as a result, PCSI requires a larger number of iterations ($K_{pcsi} > K_{cg}$). 
+%under the same convergence tolerances.  
+This will translate into a higher execution
+time for P-CSI than ChronGear at smaller core counts when global
+reductions are not an issue.  However, for high-resolution grids when
+many cores are required, P-CSI will be notably faster than ChronGear
+per iteration (see Equations (\ref{t_pcg}) and (\ref{t_psi})), which
+will result a reduction in time to convergence.
+
+\subsection{Eigenvalue Estimation for the P-CSI}
+The eigenvalue estimation method for CSI \cite{hu2013scalable} is amended for P-CSI to calculate the eigenvalues of the preconditioned matrix $M^{-1}A$.
+A series of tridiagonal matrices $T_m (m=1,2,...)$ whose largest ($\lambda_{max}$) and smallest ($\lambda_{min}$) eigenvalues converge to those of $M^{-1}A$
+can be constructed using the Lanczos method \cite{Paige1980235} since the actual values of $\lambda_{min}$ and $\lambda_{max}$ are difficult to obtain. 
+For reference, Lanczos-based eigenvalues estimation procedure in given in Algorithm \ref{alg:lanczos_pre}. 
+A more detailed discussion as related to CSI can be found in
+\cite{hu2013scalable}.
+In step \ref{lanczos_converge}, $\epsilon$ is a user-defined tolerance. In experiments, we found that  setting $\epsilon=0.15$ works efficiently in both 1\degree and 0.1 \degree cases with different preconditioners.
+%$T_m$ contains $\alpha_i (i=1,2,...,m)$ as its diagonal entries and $\beta_i (i=1,2,...,m-1)$ as off-diagonal entries listed below
+%\[ T_{m} = tridiag\left(\begin{array}{ccccccc}
+%&\beta_1 && \bullet & &\beta_{m-1}&    \\
+%\alpha_1 & &\alpha_2 && \bullet &&\alpha_{m}\\
+%&\beta_1 && \bullet & & \beta_{m-1}&
+%\end{array} \right)\]
+Fig.\ref{fig:iter} indicates that only a small number of Lanczos steps
+are necessary to generate
+eigenvalue estimates of $M^{-1}A$ that result in near-optimal P-CSI
+convergence. 
+
+
+%%IF WE NEED MORE SPACE WE CAN LEAVE OUT ALGORITHM 3
+%convergence speed of P-CSI reaches its theoretical optimum when $\nu = \lambda_{min}$ and $\mu =\lambda_{max}$. 
+%Accurate values of $\lambda_{min}$ and $\lambda_{max}$ are difficult to obtain. In addition, any transformation of the coefficient matrix $A$ is ill-advised because $A$ was distributed to processes.
+%To utilize the parallelism of POP, we employ Lanczos method  to construct
+%In practice, we find that this theoretical optimum has a iteration number close to the one of PCG.
+
+
+\begin{algorithm}[!ht]
+\caption{Lanczos-based Eigenvalue Estimation for Preconditioned Matrix}
+\label{alg:lanczos_pre}
+\begin{algorithmic}[1]
+\REQUIRE Coefficient matrix $\textbf{B}$, preconditioner $\textbf{M}$, and random vector $\textbf{r}_0$ associated with grid block $B_{i,j}$; \\
+ //\qquad    \textit{do in parallel with all processes}
+\STATE $\textbf{s}_0=\textbf{M}^{-1}\textbf{r}_0$;\quad $\textbf{q}_1 = \textbf{r}_0/({\textbf{r}_0^T\textbf{s}_0})$;\quad $\textbf{q}_0=\textbf{0}$;
+\STATE $T_0=\emptyset$;\quad $\beta_0 =0$;\quad  $\mu_0 =0$;\quad $j=1$;
+\WHILE{$j<k_{max}$}
+\STATE $\textbf{p}_j = \textbf{M}^{-1}\textbf{q}_j$; \quad $\textbf{r}_j=\textbf{B}\textbf{p}_j-\beta_{j-1}\textbf{q}_{j-1}$;
+\STATE $update\_halo(\textbf{r}_j)$;
+\STATE $\tilde{\alpha}_j =\textbf{p}_j^T\textbf{r}_j$; \quad $\alpha_j=global\_sum(\tilde{\alpha}_j)$;
+\STATE $\textbf{r}_j=\textbf{r}_j-\alpha_{j}\textbf{q}_{j}$; \quad $\textbf{s}_j = \textbf{M}^{-1}\textbf{r}_j$; 
+\STATE $\tilde{\beta}_j = \textbf{r}_j^T\textbf{s}_j$; \quad $\beta_j=sqrt(global\_sum(\tilde{\beta}_j))$;
+\STATE \textbf{if} $\beta_j == 0$ \textbf{then} \textbf{return}
+\STATE $\mu_j = max(\mu_{j-1},\alpha_j+\beta_j+\beta_{j-1})$; \label{lan_gersh}\\
+\STATE $T_j=tri\_diag(T_{j-1},\alpha_j,\beta_j)$; \COMMENT{Tridiagonal}\label{lan_tm}
+\STATE $\nu_j = eigs(T_j,'smallest')$ ; \label{lan_nu}
+\STATE \textbf{if} $|\frac{\mu_j}{\mu_{j-1}} -1 |< \epsilon\quad\textbf{and}\quad|1- \frac{\nu_j}{\nu_{j-1}}|< \epsilon$ \textbf{then} \textbf{return}; \label{lanczos_converge}
+\STATE $\textbf{q}_{j+1}= \textbf{r}_j/\beta_j$;\quad $j=j+1$;
+\ENDWHILE
+\end{algorithmic}
+\end{algorithm}
+
+%This algorithm assume that $\textbf{A}$ is positive defined symmetrical matrix.  However, it is simple to adjust the algorithm for negative defined matrix as in our case. Just negating both $\textbf{A}$ and its preconditioner. 
+
+%Let $\xi_{min}$ and $\xi_{max}$ be the smallest and largest eigenvalues of $T_m$, respectively. Paige \cite{Paige1980235} demonstrated that
+%\begin{equation}
+%$\lambda_{min} \le \xi_{min} \le \lambda_{min}+\delta_1(m)$ and $\lambda_{max}-\delta_2(m)  \le \xi_{max} \le \lambda_{max}$.
+%\end{equation}
+%Here, $\delta_1(m)$ and $\delta_2(m)$ vanish in most cases as $m$ increases. Thus, the eigenvalue estimation of $A$ is transformed to solve the eigenvalues of $T_m$.
+%Step \ref{lan_gersh} in Algorithm  \ref{alg:lanczos_pre} employs the Gershgorin circle theorem to estimate the largest eigenvalue of $T_m$, that is,
+%\begin{equation}
+%$\mu = \max_{1 \le i \le m}\sum^m_{j=1}|T_{ij}|=\max_{1 \le i \le m}(\beta_{i-1}+\alpha_i +\beta_{i})$.
+%\end{equation}
+%. In form of matrix, $\mu$ is the max element of vector $|A|u$, $|A| = (|a_{i,j}|)$, $u=(1,1,...,1)^T$. Here, matrix-vector multiplication $|A|u$, just like $Au$, is naturally supported by the parallelism of POP.
+\begin {figure}[!t]
+\centering
+\vspace{-10pt}
+\includegraphics[scale=0.5]{solver_iteration}
+\caption []{Relationship of P-CSI iterations and Lanczos steps in 1\degree POP \label {fig:iter}}
+\end {figure}
+
+%The efficient QR algorithm \cite{ortega1963llt} with a complexity of $\Theta(m)$ is used to estimate the smallest eigenvalue $\nu$ in step \ref{lan_nu}. 
+
+%As shown in the section \ref{se:exp}, the estimates $\mu$, $\nu$ in the methods mentioned above is close to the smallest and largest eigenvalues. As a result, P-CSI converges at a favorable speed.
+%(Pls re-explain why choose $\mu$ and $\nu$ using these methods. The above comments is really not convincing.

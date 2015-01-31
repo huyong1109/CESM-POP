@@ -1,0 +1,35 @@
+\section{Related work} \label{se:rel}
+%----------------------------------------------------------------------------
+%improving barotropic
+
+Much work has been done on optimizing the performance of solving the elliptic problem required by the implicit free-surface method in ocean models.  
+Most of them fall into two directions.  
+The first is related to decreasing the negative effects of the global communication required by PCG or ChronGear methods.  In ocean models, OpenMP parallelism and land elimination are common strategies to reduce the number of processes and the associated  global communication overhead. Worley et al. \cite{Worley:2011:PCE:2063384.2063457} strongly recommended the OpenMP strategy to reduce the number of processes when a large count of cores are needed for the baroclinic mode.
+Dennis \cite{dennis2007inverse,dennis2008scaling} proposed a load-balancing strategy based on the space-filling curve partitioning algorithms to eliminate land blocks.  This strategy not only reduces the number of processes but also leads to a better load-balance.
+It doubles the simulation rate on approximately 30,000 processors.    
+%MOVE TO RELATED WORK
+There are currently different alternatives to mitigate the poor behavior of the PCG type of solver in the massive parallelization.
+Some approaches attempt to overlap the communication with computation time\cite{beare1997optimisation}.
+Some use the land elimination and load-balance strategies \cite{dennis2007inverse, dennis2008scaling}
+to reduce the number of processes and the associated overhead of global reduction.
+Reducing the frequency of communication also attenuates the overhead in the barotropic mode.
+As early as 1997,  Beare \cite{beare1997optimisation} proposed the performance of parallel ocean general circulation models can be improved by increasing the number of extra halos and overlapping the communications with the computation.
+Although these approaches may improve performance, they do not eliminate the major bottleneck of the global reduction.
+
+%A variant of the standard conjugate gradient method presented by D'Azevedo \cite{dAzevedo1999lapack}, called the Chronopoulos-Gear algorithm, proposed a way to halve the global communication in PCG.  It combines the two separate global reductions into a single global reduction vector by rearranging the conjugate gradient computation procedure, and achieves a one third latency reduction in POP.
+Another way to attenuate the bottleneck of the barotropic solver is preconditioning.
+Preconditioning has been highlighted in the CG method since the 1990s. Many linear systems converge after a few PCG iterations with a suitable preconditioner.  
+However, many of the most effective preconditioning techniques, such as Incomplete Cholesky decomposition and incomplete LU decomposition, are not so effective in ocean models.  
+Parallelizable and special designed preconditioners are required for elliptic equations in ocean models. 
+In 1985, Concus et al. \cite{concus1985block} used the banded approximate of the matrix inverse to precondition CG method on elliptic partial differential equations and achieved higher efficiency than other universal preconditioning method. 
+Smith et al. \cite{smith1992parallel} employed polynomial preconditioning methods and a local approximate-inverse preconditioning method to accelerate the convergence of CG method in a parallel ocean general circulation model. 
+Adamidis et al. \cite{adamidis2011high} implemented an incomplete Cholesky preconditioner in the global ocean/sea-ice model MPIOM to improve the scalability and performance of PCG.
+%Watanabe \cite{Watanabe2006pcg}  used  PCG combined with an overlapping domain decomposition method to improve the convergence and reduce the communications cost between the processor elements.
+
+This paper represents a method which improves the barotropic solver by both strategies mentioned above.  P-CSI solver eliminates the global communication which is required by CG like solvers. In the meantime, it supports an EVP preconditioner which accelerates the convergence with an efficiency comparable to other preconditioning methods developed for ocean models. 
+
+%The improvement of the methods described above is limited due to the inherent poor data locality and sequential execution of PCG. 
+%Some work has been done to accelerate the PCG solver by employing the developing hybrid  accelerating devices, such as GPUs \cite{cuomo2012pcg} and FPGAs \cite{Shida2007}.
+%Cuomo et al. \cite{cuomo2012pcg} introduced the sparse approximate inverses preconditioning method into the numerical global circulation ocean model and implemented it on a GPU using a scientific computing code library.
+%Shida et al. \cite{Shida2007} moved the barotropic mode onto FPGAs, and found comparative performance on 100MHz FPGAs as on GHz processors with the appropriate use of internal memory and streaming DMA.
+%GPUs and FPGAs are helpful in reducing the global overhead. These devices have stronger computational ability and more memory than common CPU, so fewer devices and less communication are needed for the same scale computing job.
