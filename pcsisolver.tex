@@ -70,10 +70,11 @@ will result a reduction in time to convergence.
 The eigenvalue estimation method for CSI \cite{hu2013scalable} is amended for P-CSI to calculate the eigenvalues of the preconditioned matrix $M^{-1}A$.
 A series of tridiagonal matrices $T_m (m=1,2,...)$ whose largest ($\lambda_{max}$) and smallest ($\lambda_{min}$) eigenvalues converge to those of $M^{-1}A$
 can be constructed using the Lanczos method \cite{Paige1980235} since the actual values of $\lambda_{min}$ and $\lambda_{max}$ are difficult to obtain. 
-For reference, Lanczos-based eigenvalues estimation procedure in given in Algorithm \ref{alg:lanczos_pre}. 
+%For reference, Lanczos-based eigenvalues estimation procedure in given in Algorithm \ref{alg:lanczos_pre}. 
 A more detailed discussion as related to CSI can be found in
 \cite{hu2013scalable}.
-In step \ref{lanczos_converge}, $\epsilon$ is a user-defined tolerance. In experiments, we found that  setting $\epsilon=0.15$ works efficiently in both 1\degree and 0.1 \degree cases with different preconditioners.
+%In step \ref{lanczos_converge}, $\epsilon$ is a user-defined tolerance.
+In experiments, we found that  setting the Lanczos convergence tolerance $\epsilon$ to $0.15$ works efficiently in both 1\degree and 0.1 \degree cases with different preconditioners.
 %$T_m$ contains $\alpha_i (i=1,2,...,m)$ as its diagonal entries and $\beta_i (i=1,2,...,m-1)$ as off-diagonal entries listed below
 %\[ T_{m} = tridiag\left(\begin{array}{ccccccc}
 %&\beta_1 && \bullet & &\beta_{m-1}&    \\
@@ -93,50 +94,35 @@ convergence.
 %In practice, we find that this theoretical optimum has a iteration number close to the one of PCG.
 
 
-\begin{algorithm}[!ht]
-\caption{Lanczos-based Eigenvalue Estimation for Preconditioned Matrix}
-\label{alg:lanczos_pre}
-\begin{algorithmic}[1]
-\REQUIRE Coefficient matrix $\textbf{B}$, preconditioner $\textbf{M}$, and random vector $\textbf{r}_0$ associated with grid block $B_{i,j}$; \\
- //\qquad    \textit{do in parallel with all processes}
-\STATE $\textbf{s}_0=\textbf{M}^{-1}\textbf{r}_0$;\quad $\textbf{q}_1 = \textbf{r}_0/({\textbf{r}_0^T\textbf{s}_0})$;\quad $\textbf{q}_0=\textbf{0}$;
-\STATE $T_0=\emptyset$;\quad $\beta_0 =0$;\quad  $\mu_0 =0$;\quad $j=1$;
-\WHILE{$j<k_{max}$}
-\STATE $\textbf{p}_j = \textbf{M}^{-1}\textbf{q}_j$; \quad $\textbf{r}_j=\textbf{B}\textbf{p}_j-\beta_{j-1}\textbf{q}_{j-1}$;
-\STATE $update\_halo(\textbf{r}_j)$;
-\STATE $\tilde{\alpha}_j =\textbf{p}_j^T\textbf{r}_j$; \quad $\alpha_j=global\_sum(\tilde{\alpha}_j)$;
-\STATE $\textbf{r}_j=\textbf{r}_j-\alpha_{j}\textbf{q}_{j}$; \quad $\textbf{s}_j = \textbf{M}^{-1}\textbf{r}_j$; 
-\STATE $\tilde{\beta}_j = \textbf{r}_j^T\textbf{s}_j$; \quad $\beta_j=sqrt(global\_sum(\tilde{\beta}_j))$;
-\STATE \textbf{if} $\beta_j == 0$ \textbf{then} \textbf{return}
-\STATE $\mu_j = max(\mu_{j-1},\alpha_j+\beta_j+\beta_{j-1})$; \label{lan_gersh}\\
-\STATE $T_j=tri\_diag(T_{j-1},\alpha_j,\beta_j)$; \COMMENT{Tridiagonal}\label{lan_tm}
-\STATE $\nu_j = eigs(T_j,'smallest')$ ; \label{lan_nu}
-\STATE \textbf{if} $|\frac{\mu_j}{\mu_{j-1}} -1 |< \epsilon\quad\textbf{and}\quad|1- \frac{\nu_j}{\nu_{j-1}}|< \epsilon$ \textbf{then} \textbf{return}; \label{lanczos_converge}
-\STATE $\textbf{q}_{j+1}= \textbf{r}_j/\beta_j$;\quad $j=j+1$;
-\ENDWHILE
-\end{algorithmic}
-\end{algorithm}
+%\begin{algorithm}[!ht]
+%\caption{Lanczos-based Eigenvalue Estimation for Preconditioned Matrix}
+%\label{alg:lanczos_pre}
+%\begin{algorithmic}[1]
+%\REQUIRE Coefficient matrix $\textbf{B}$, preconditioner $\textbf{M}$, and random vector $\textbf{r}_0$ associated with grid block $B_{i,j}$; \\
+% //\qquad    \textit{do in parallel with all processes}
+%\STATE $\textbf{s}_0=\textbf{M}^{-1}\textbf{r}_0$;\quad $\textbf{q}_1 = \textbf{r}_0/({\textbf{r}_0^T\textbf{s}_0})$;\quad $\textbf{q}_0=\textbf{0}$;
+%\STATE $T_0=\emptyset$;\quad $\beta_0 =0$;\quad  $\mu_0 =0$;\quad $j=1$;
+%\WHILE{$j<k_{max}$}
+%\STATE $\textbf{p}_j = \textbf{M}^{-1}\textbf{q}_j$; \quad $\textbf{r}_j=\textbf{B}\textbf{p}_j-\beta_{j-1}\textbf{q}_{j-1}$;
+%\STATE $update\_halo(\textbf{r}_j)$;
+%\STATE $\tilde{\alpha}_j =\textbf{p}_j^T\textbf{r}_j$; \quad $\alpha_j=global\_sum(\tilde{\alpha}_j)$;
+%\STATE $\textbf{r}_j=\textbf{r}_j-\alpha_{j}\textbf{q}_{j}$; \quad $\textbf{s}_j = \textbf{M}^{-1}\textbf{r}_j$; 
+%\STATE $\tilde{\beta}_j = \textbf{r}_j^T\textbf{s}_j$; \quad $\beta_j=sqrt(global\_sum(\tilde{\beta}_j))$;
+%\STATE \textbf{if} $\beta_j == 0$ \textbf{then} \textbf{return}
+%\STATE $\mu_j = max(\mu_{j-1},\alpha_j+\beta_j+\beta_{j-1})$; \label{lan_gersh}\\
+%\STATE $T_j=tri\_diag(T_{j-1},\alpha_j,\beta_j)$; \COMMENT{Tridiagonal}\label{lan_tm}
+%\STATE $\nu_j = eigs(T_j,'smallest')$ ; \label{lan_nu}
+%\STATE \textbf{if} $|\frac{\mu_j}{\mu_{j-1}} -1 |< \epsilon\quad\textbf{and}\quad|1- \frac{\nu_j}{\nu_{j-1}}|< \epsilon$ \textbf{then} \textbf{return}; \label{lanczos_converge}
+%\STATE $\textbf{q}_{j+1}= \textbf{r}_j/\beta_j$;\quad $j=j+1$;
+%\ENDWHILE
+%\end{algorithmic}
+%\end{algorithm}
 
 %This algorithm assume that $\textbf{A}$ is positive defined symmetrical matrix.  However, it is simple to adjust the algorithm for negative defined matrix as in our case. Just negating both $\textbf{A}$ and its preconditioner. 
 
-%Let $\xi_{min}$ and $\xi_{max}$ be the smallest and largest eigenvalues of $T_m$, respectively. Paige \cite{Paige1980235} demonstrated that
-%\begin{equation}
-%$\lambda_{min} \le \xi_{min} \le \lambda_{min}+\delta_1(m)$ and $\lambda_{max}-\delta_2(m)  \le \xi_{max} \le \lambda_{max}$.
-%\end{equation}
-%Here, $\delta_1(m)$ and $\delta_2(m)$ vanish in most cases as $m$ increases. Thus, the eigenvalue estimation of $A$ is transformed to solve the eigenvalues of $T_m$.
-%Step \ref{lan_gersh} in Algorithm  \ref{alg:lanczos_pre} employs the Gershgorin circle theorem to estimate the largest eigenvalue of $T_m$, that is,
-%\begin{equation}
-%$\mu = \max_{1 \le i \le m}\sum^m_{j=1}|T_{ij}|=\max_{1 \le i \le m}(\beta_{i-1}+\alpha_i +\beta_{i})$.
-%\end{equation}
-%. In form of matrix, $\mu$ is the max element of vector $|A|u$, $|A| = (|a_{i,j}|)$, $u=(1,1,...,1)^T$. Here, matrix-vector multiplication $|A|u$, just like $Au$, is naturally supported by the parallelism of POP.
 \begin {figure}[!t]
 \centering
-\vspace{-10pt}
-\includegraphics[scale=0.5]{solver_iteration}
+\includegraphics[width=1.0\linewidth]{solver_iteration}
 \caption []{Relationship of P-CSI iterations and Lanczos steps in 1\degree POP \label {fig:iter}}
 \end {figure}
 
-%The efficient QR algorithm \cite{ortega1963llt} with a complexity of $\Theta(m)$ is used to estimate the smallest eigenvalue $\nu$ in step \ref{lan_nu}. 
-
-%As shown in the section \ref{se:exp}, the estimates $\mu$, $\nu$ in the methods mentioned above is close to the smallest and largest eigenvalues. As a result, P-CSI converges at a favorable speed.
-%(Pls re-explain why choose $\mu$ and $\nu$ using these methods. The above comments is really not convincing.

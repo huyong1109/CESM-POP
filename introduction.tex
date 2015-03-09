@@ -73,12 +73,12 @@ scalability.  We make the following contributions:
 
 
 \begin{itemize}
-\item We improve the convergence of the Classical Stiefel Iteration
-  (CSI) solver proposed in \cite{hu2013scalable} via an effective
-  Error Propagation method (EVP) \cite{roache1995elliptic}
-  preconditioner. The resulting preconditioned CSI (P-CSI) solver
-  significantly reduces the number of CSI iterations at each time
-  step.
+\item We improve the convergence of the Classical Stiefel Iteration 
+(CSI) solver proposed in \cite{hu2013scalable} with a preconditioning interface.
+The resulting preconditioned CSI (P-CSI) solver significantly reduces
+ the number of CSI iterations at each time step.
+\item We develop an effective parallel preconditioner based on the
+Error Propagation method (EVP) \cite{roache1995elliptic}.
 \item
 We implement the P-CSI solver (and EVP preconditioner)  in CESM1.2 and evaluate its performance.
 \item
