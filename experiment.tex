@@ -82,7 +82,7 @@ However, Fig.\ref{fig:StepComp_pcsi} demonstrates that the barotropic mode would
 In contrast to the original ChronGear solver, the new barotropic solver takes up only 12.4\% of the total execution time instead of 49.3\% when 16,875 cores are used. 
 
 Consequently, improvement in barotropic mode will benefit the speed of the whole POP model, especially when large numbers of processor cores are used. 
-Fig.\ref{fig:runtime01} shows that diagonal preconditioned and EVP preconditioned P-CSI solver accelerate the whole POP model by 1.66 and 1.74 times respectively. 
+Fig.\ref{fig:runtime01} (left) shows that diagonal preconditioned and EVP preconditioned P-CSI solver accelerate the whole POP model by 1.66 and 1.74 times respectively. 
 
 
 %Detailed improvement of the 0.1 \degree POP  would be found in Table \ref{tab:improve_01}. 
@@ -122,8 +122,11 @@ Fig.\ref{fig:runtime01} shows that diagonal preconditioned and EVP preconditione
 The relative speedup of the whole POP model referred to the original configuration with a diagonal preconditioned ChronGear solver on 470 cores on Edison (right).\label {fig:runtime01_edison}}
 \end {figure*}
 
-Simulation rate (simulated years per wall-clock day) is a popular criterion for model performance. Here we use the ideal simulation rate (only the execution time of STEP function in POP counts) in order to get rid of the effect from initialization, preprocessing  and disk I/O. To satisfy a rate of 5 simulated years per wall-clock day, which is the minimum necessary simulation rate to run long term climate simulations, ChronGear requires more than 6124 cores while P-CSI requires only 4028 cores. 
-The EVP preconditioned P-CSI solver improves the ideal simulation rate of POP from 6.02 to 8.10 simulated years per wall-clock day. 
+Simulation rate (simulated years per wall-clock day) is a popular criterion for model performance. 
+Here we use the ideal simulation rate (only the execution time of STEP function in POP counts) in order to get rid of the effect from initialization, preprocessing  and disk I/O. 
+Table \ref{tab:improve_01} shows that to satisfy a rate of 5 simulated years per wall-clock day, which is the minimum necessary simulation rate to run long term climate simulations, 
+ChronGear requires more than 7,500 cores while P-CSI requires only 4,220 cores. 
+The EVP preconditioned P-CSI solver improves the ideal simulation rate of POP by 1.74 times on 16,875 cores, from 5.34 to 9.24 simulated years per wall-clock day. 
 
 To understand the source of improvement, more detail about the barotropic solver is provided in Fig.\ref{fig:component}.
 Fig.\ref{fig:component} tells that P-CSI outperforms ChronGear mainly because of less global reduction. 

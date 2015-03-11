@@ -160,32 +160,17 @@ Yong Hu\thua\thub,Yu-heng Tseng\ncara,Allison H. Baker\ncarb, \\Xiaomeng Huang\t
 
 \maketitle
 \begin{abstract}
-%\boldmath
-  The increasing need for high-resolution climate simulations warrants
-  the investigation of a new preconditioned linear solver for the
-  barotropic mode in the Parallel Ocean Model (POP).  POP is the ocean
-  component of the Community Earth System Model (CESM) framework and
-  is computationally expensive for high-resolution grids (e.g.,
-  0.1\degree) on many cores.  Similar to other free-surface models,
-  POP solves the fast barotropic dynamics with the implicit
-  free-surface method.  This method requires the solution of an
-  elliptic system of equations, and POP solves this elliptic system
-  with a modified Preconditioned Conjugate Gradient (PCG) method.
-  While effective at moderate core counts and resolutions, PCG methods
-  scale poorly on large parallel systems due to the global reductions
-  required by the inner product calculations.  This poor scaling is
-  problematic for high-resolution CESM simulations.  In this work, we
-  implement a more scalable Preconditioned Stiefel Iteration method
-  (P-CSI) into the barotropic mode of POP within CESM, and develop an
-  effective Error Vector Propagation preconditioner to improve the
-  convergence rate.  Our experiments show that P-CSI accelerates the
-  high-resolution (0.1\degree) barotropic solver by 4.7 times, from
-  12.8s to 2.7s per simulation day, on 9,128 cores.  This improves the
-  core POP simulation (without I/O and initialization) by 35\%, from
-  6.0 to 8.10 simulated years per wall-clock day.  Further, to ensure
-  that the use of an alternative solver in POP does not negatively
-  impact the ocean climate, we use an ensemble-based statistical
-  method to evaluate the impact of the new solver.
+The increasing need for high-resolution climate simulations warrants the investigation of a new preconditioned linear solver for the barotropic mode in the Parallel Ocean Model (POP).  
+POP is the ocean component of the Community Earth System Model (CESM) framework and is computationally expensive for high-resolution grids (e.g., 0.1\degree) on many cores.  
+Similar to other free-surface models, POP solves the fast barotropic dynamics with the implicit free-surface method.  
+This method requires the solution of an elliptic system of equations, and POP solves this elliptic system with a modified Preconditioned Conjugate Gradient (PCG) method.
+While effective at moderate core counts and resolutions, PCG methods scale poorly on large parallel systems due to the global reductions required by the inner product calculations.  
+This poor scaling is problematic for high-resolution CESM simulations.  
+In this work, we implement a more scalable Preconditioned Stiefel Iteration method (P-CSI) into the barotropic mode of POP within CESM, and develop an effective Error Vector Propagation preconditioner to improve the convergence rate.  
+Our experiments show that P-CSI accelerates the high-resolution (0.1\degree)  barotropic solver by 7.1 times on 16,875 cores, from 21.84s to 3.06s per simulation day.
+This improves the core POP simulation (without I/O and initialization) by 1.74 times, from 5.3 to 9.3 simulated years per wall-clock day.  
+Further, to ensure that the use of an alternative solver in POP does not negatively impact the ocean climate, we use an ensemble-based statistical method to evaluate the impact of the new solver.
+
 \end{abstract}
 % A category with the (minimum) three required fields
 \category{J.2}{Physical Sciences and Engineering}{Earth and atmospheric sciences}
